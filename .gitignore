@@ -1,0 +1,13 @@
+# Entornos virtuales
+venv/
+env/
+
+# Archivos compilados de Python
+__pycache__/
+*.pyc
+
+# Variables de entorno (¡Nunca subas contraseñas a GitHub!)
+.env
+
+# Base de datos local (si llegas a usar SQLite de prueba)
+*.sqlite3
