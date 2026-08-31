@@ -6,8 +6,8 @@ env/
 __pycache__/
 *.pyc
 
-# Variables de entorno (¡Nunca subas contraseñas a GitHub!)
+# Variables de entorno 
 .env
 
-# Base de datos local (si llegas a usar SQLite de prueba)
+# Base de datos local (si se usa SQLite de prueba)
 *.sqlite3
