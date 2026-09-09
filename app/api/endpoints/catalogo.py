@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List
 from app.db.database import SessionLocal
-from app.models.inventario import Prenda # Asegúrate de que el modelo esté en este archivo
-from app.schemas.catalogo import PrendaResponse, PrendaCreate
+from app.models.inventario import Prenda, Categoria, Proveedor 
+from app.schemas.catalogo import PrendaResponse, PrendaCreate, CategoriaBase, CategoriaResponse, ProveedorBase, ProveedorResponse
 import os
 from uuid import uuid4
 import shutil
@@ -65,3 +65,33 @@ def crear_prenda(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Error al guardar: {str(e)}")
+    
+# ==========================================
+# RUTAS PARA CATEGORÍAS
+# ==========================================
+@router.get("/categorias", response_model=List[CategoriaResponse])
+def obtener_categorias(db: Session = Depends(get_db)):
+    return db.query(Categoria).all()
+
+@router.post("/categorias", response_model=CategoriaResponse)
+def crear_categoria(categoria: CategoriaBase, db: Session = Depends(get_db)):
+    nueva_categoria = Categoria(nombre=categoria.nombre)
+    db.add(nueva_categoria)
+    db.commit()
+    db.refresh(nueva_categoria)
+    return nueva_categoria
+
+# ==========================================
+# RUTAS PARA PROVEEDORES
+# ==========================================
+@router.get("/proveedores", response_model=List[ProveedorResponse])
+def obtener_proveedores(db: Session = Depends(get_db)):
+    return db.query(Proveedor).all()
+
+@router.post("/proveedores", response_model=ProveedorResponse)
+def crear_proveedor(proveedor: ProveedorBase, db: Session = Depends(get_db)):
+    nuevo_proveedor = Proveedor(razon_social=proveedor.razon_social)
+    db.add(nuevo_proveedor)
+    db.commit()
+    db.refresh(nuevo_proveedor)
+    return nuevo_proveedor

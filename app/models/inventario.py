@@ -24,6 +24,8 @@ class Prenda(Base):
     descripcion = Column(String(255))
     precio_base = Column(Float, nullable=False)
     
+    imagen_url = Column(String(255), nullable=True)
+    
     categoria_id = Column(Integer, ForeignKey("categorias.id"))
     proveedor_id = Column(Integer, ForeignKey("proveedores.id"))
     # Aquí puedes agregar temporada_id y coleccion_id siguiendo la misma lógica

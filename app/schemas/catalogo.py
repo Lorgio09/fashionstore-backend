@@ -29,8 +29,28 @@ class PrendaResponse(BaseModel):
     nombre: str
     descripcion: Optional[str] = None
     precio_base: float
-    # Incluye las tallas/colores disponibles al responder
+    imagen_url: Optional[str] = None
     variantes: List[VarianteResponse] = [] 
 
+    class Config:
+        from_attributes = True
+        
+# --- ESQUEMAS PARA CATEGORÍA ---
+class CategoriaBase(BaseModel):
+    nombre: str
+
+class CategoriaResponse(CategoriaBase):
+    id: int
+    
+    class Config:
+        from_attributes = True  # Permite leer desde modelos de SQLAlchemy
+
+# --- ESQUEMAS PARA PROVEEDOR ---
+class ProveedorBase(BaseModel):
+    razon_social: str
+
+class ProveedorResponse(ProveedorBase):
+    id: int
+    
     class Config:
         from_attributes = True
