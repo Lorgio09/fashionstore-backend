@@ -7,8 +7,8 @@ from uuid import uuid4
 import shutil
 
 from app.db.database import SessionLocal
-from app.models.inventario import Prenda, Categoria, Proveedor, Sucursal
-from app.schemas.catalogo import PrendaResponse, PrendaCreate, CategoriaBase, CategoriaResponse, ProveedorBase, ProveedorResponse
+from app.models.inventario import Prenda, Categoria, Proveedor, Sucursal, Inventario, VariantePrenda
+from app.schemas.catalogo import PrendaResponse, PrendaCreate, CategoriaBase, CategoriaResponse, ProveedorBase, ProveedorResponse, VarianteStockCreate
 
 router = APIRouter()
 os.makedirs("static/imagenes", exist_ok=True)
@@ -93,6 +93,32 @@ def crear_sucursal(sucursal: SucursalCreate, db: Session = Depends(get_db)):
     db.refresh(nueva_sucursal)
     return nueva_sucursal
 
+@router.post("/variantes-stock")
+def registrar_variante_y_stock(datos: VarianteStockCreate, db: Session = Depends(get_db)):
+    # 1. Creamos la variante física (Talla, Color, SKU)
+    nueva_variante = VariantePrenda(
+        prenda_id=datos.prenda_id,
+        talla=datos.talla,
+        color=datos.color,
+        codigo_sku=datos.codigo_sku
+    )
+    db.add(nueva_variante)
+    db.flush() # Asigna un ID a la variante sin cerrar la transacción
+    
+    # 2. Registramos cuántas unidades hay y en qué sucursal
+    nuevo_inventario = Inventario(
+        variante_id=nueva_variante.id,
+        sucursal_id=datos.sucursal_id,
+        stock_disponible=datos.cantidad,
+        stock_reservado=0
+    )
+    db.add(nuevo_inventario)
+    
+    # 3. Guardamos ambas cosas de golpe
+    db.commit()
+    
+    return {"mensaje": "Variante y stock registrados correctamente", "sku": datos.codigo_sku}
+
 # --- CATEGORÍAS ---
 @router.get("/categorias", response_model=List[CategoriaResponse])
 def obtener_categorias(db: Session = Depends(get_db)):
@@ -121,7 +147,7 @@ def crear_proveedor(proveedor: ProveedorCreate, db: Session = Depends(get_db)):
 
 
 # ==========================================
-# 3. RUTAS DINÁMICAS (Siempre al final)
+# 3. RUTAS DINÁMICAS
 # ==========================================
 
 @router.get("/{prenda_id}", response_model=PrendaResponse)

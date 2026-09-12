@@ -54,3 +54,11 @@ class ProveedorResponse(ProveedorBase):
     
     class Config:
         from_attributes = True
+        
+class VarianteStockCreate(BaseModel):
+    prenda_id: int
+    talla: str
+    color: str
+    codigo_sku: str
+    sucursal_id: int
+    cantidad: int  # Cuánto stock entra
