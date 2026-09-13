@@ -1,5 +1,6 @@
-from pydantic import BaseModel
 from typing import List, Optional
+from pydantic import BaseModel
+from datetime import date
 
 class VarianteCreate(BaseModel):
     talla: str
@@ -62,3 +63,13 @@ class VarianteStockCreate(BaseModel):
     codigo_sku: str
     sucursal_id: int
     cantidad: int  # Cuánto stock entra
+
+class TemporadaBase(BaseModel):
+    nombre: str
+    fecha_inicio: Optional[date] = None
+    fecha_fin: Optional[date] = None
+
+class TemporadaResponse(TemporadaBase):
+    id: int
+    class Config:
+        from_attributes = True

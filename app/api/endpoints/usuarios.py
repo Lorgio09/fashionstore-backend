@@ -75,3 +75,52 @@ def crear_empleado(usuario: UsuarioCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(nuevo_empleado)
     return nuevo_empleado
+
+@router.post("/login")
+def login_usuario(usuario: UsuarioLogin, db: Session = Depends(get_db)):
+    db_user = db.query(Usuario).filter(Usuario.email == usuario.email).first()
+    
+    # Aquí validamos usando la caja fuerte de security.py
+    if not db_user or not verify_password(usuario.password, db_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Correo o contraseña incorrectos"
+        )
+    
+    # Generamos la llave maestra (Token JWT)
+    access_token = create_access_token(
+        data={"sub": db_user.email, "rol": db_user.rol_id, "nombre": db_user.nombre_completo}
+    )
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "usuario": {
+            "id": db_user.id,
+            "nombre": db_user.nombre_completo,
+            "rol_id": db_user.rol_id
+        }
+    }
+    
+# ==========================================
+# 4. PERFIL (Ruta Protegida de Prueba)
+# ==========================================
+@router.get("/perfil")
+def obtener_perfil(usuario_actual: Usuario = Depends(get_usuario_actual)):
+    return {
+        "mensaje": "¡Acceso autorizado a zona privada!",
+        "datos_privados": {
+            "nombre": usuario_actual.nombre_completo,
+            "email": usuario_actual.email,
+            "rol_id": usuario_actual.rol_id
+        }
+    }
+    
+@router.get("/roles")
+def listar_roles(db: Session = Depends(get_db)):
+    return db.query(Rol).all()
+
+@router.get("/")
+def listar_usuarios(db: Session = Depends(get_db)):
+    # Devolvemos todos excepto las contraseñas, por supuesto
+    return db.query(Usuario).all()

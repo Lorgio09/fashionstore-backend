@@ -8,6 +8,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from app.models.usuarios import Usuario
 from app.db.database import SessionLocal
+from app.models.auditoria import Bitacora
 
 # ==========================================
 # 1. CONFIGURACIÓN BÁSICA
@@ -65,3 +66,15 @@ def get_usuario_actual(credentials: HTTPAuthorizationCredentials = Depends(secur
         raise HTTPException(status_code=401, detail="Usuario no encontrado")
     
     return usuario
+
+def registrar_bitacora(db: Session, usuario_id: int, accion: str, tabla: str, registro_id: int, detalle: str = ""):
+    """Función para registrar movimientos silenciosamente en la base de datos."""
+    nuevo_registro = Bitacora(
+        accion=accion,
+        tabla_afectada=tabla,
+        registro_id=registro_id,
+        detalle=detalle,
+        usuario_id=usuario_id
+    )
+    db.add(nuevo_registro)
+    db.commit()

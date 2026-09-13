@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime,Date
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.db.database import Base 
@@ -65,3 +65,11 @@ class Inventario(Base):
     
     variante = relationship("VariantePrenda", back_populates="inventarios")
     sucursal = relationship("Sucursal", back_populates="inventarios")
+    
+class Temporada(Base):
+    __tablename__ = "temporadas"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(50), nullable=False)  # Ej: "Verano 2026"
+    fecha_inicio = Column(Date, nullable=True)
+    fecha_fin = Column(Date, nullable=True)
