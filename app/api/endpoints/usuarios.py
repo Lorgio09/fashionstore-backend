@@ -124,3 +124,20 @@ def listar_roles(db: Session = Depends(get_db)):
 def listar_usuarios(db: Session = Depends(get_db)):
     # Devolvemos todos excepto las contraseñas, por supuesto
     return db.query(Usuario).all()
+
+@router.get("/sembrar-datos")
+def sembrar_datos(db: Session = Depends(get_db)):
+    # 1. Crear la sucursal por defecto
+    sucursal = Sucursal(nombre="Principal") 
+    db.add(sucursal)
+    
+    # 2. Crear los 4 roles exactos de tu documentación
+    rol1 = Rol(nombre="Cliente")
+    rol2 = Rol(nombre="Administrador")
+    rol3 = Rol(nombre="Encargado de sucursal")
+    rol4 = Rol(nombre="Cajero")
+    
+    db.add_all([rol1, rol2, rol3, rol4])
+    db.commit()
+    
+    return {"mensaje": "Los 4 roles y la sucursal fueron creados con éxito."}
