@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 
 from app.db.database import SessionLocal
-from app.models.usuarios import Rol, Usuario
+from app.models.usuarios import Usuario, Rol, Sucursal
 from app.schemas.usuarios import UsuarioCreate, UsuarioResponse, ClienteCreate
 
 # ¡Aquí está la magia! Importamos la seguridad desde nuestro core
