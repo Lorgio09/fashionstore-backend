@@ -73,3 +73,13 @@ class TemporadaResponse(TemporadaBase):
     id: int
     class Config:
         from_attributes = True
+        
+
+class ColeccionBase(BaseModel):
+    nombre: str
+    descripcion: Optional[str] = None
+
+class ColeccionResponse(ColeccionBase):
+    id: int
+    class Config:
+        from_attributes = True

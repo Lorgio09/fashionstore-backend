@@ -73,3 +73,10 @@ class Temporada(Base):
     nombre = Column(String(50), nullable=False)  # Ej: "Verano 2026"
     fecha_inicio = Column(Date, nullable=True)
     fecha_fin = Column(Date, nullable=True)
+    
+class Coleccion(Base):
+    __tablename__ = "colecciones"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(100), nullable=False)     # Ej: "Urbana 2026"
+    descripcion = Column(String(255), nullable=True) # Ej: "Prendas casuales de algodón"

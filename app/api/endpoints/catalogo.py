@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.db.database import SessionLocal
-from app.models.inventario import Prenda, Categoria, Proveedor, Sucursal, Inventario, VariantePrenda, Temporada
+from app.models.inventario import Prenda, Categoria, Proveedor, Sucursal, Inventario, VariantePrenda, Temporada, Coleccion
 from app.models.usuarios import Usuario
-from app.schemas.catalogo import PrendaResponse, PrendaCreate, CategoriaBase, CategoriaResponse, ProveedorBase, ProveedorResponse, VarianteStockCreate, TemporadaBase, TemporadaResponse
+from app.schemas.catalogo import PrendaResponse, PrendaCreate, CategoriaBase, CategoriaResponse, ProveedorBase, ProveedorResponse, VarianteStockCreate, TemporadaBase, TemporadaResponse,ColeccionBase,ColeccionResponse
+from sqlalchemy import func
 
 # Importaciones de seguridad y auditoría
 from app.core.security import get_usuario_actual, registrar_bitacora
@@ -184,6 +185,29 @@ def crear_proveedor(
     return nuevo_proveedor
 
 
+@router.get("/colecciones", response_model=List[ColeccionResponse])
+def obtener_colecciones(db: Session = Depends(get_db)):
+    return db.query(Coleccion).all()
+
+@router.post("/colecciones", response_model=ColeccionResponse)
+def crear_coleccion(
+    coleccion: ColeccionBase, 
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_usuario_actual)
+):
+    nueva_coleccion = Coleccion(
+        nombre=coleccion.nombre,
+        descripcion=coleccion.descripcion
+    )
+    db.add(nueva_coleccion)
+    db.commit()
+    db.refresh(nueva_coleccion)
+    
+    # AUDITORÍA
+    registrar_bitacora(db, usuario_actual.id, "INSERTAR", "colecciones", nueva_coleccion.id, f"Se creó la colección: {nueva_coleccion.nombre}")
+    
+    return nueva_coleccion
+
 # --- TEMPORADAS ---
 # (Movido aquí arriba, antes de las rutas dinámicas)
 @router.get("/temporadas", response_model=List[TemporadaResponse])
@@ -210,6 +234,23 @@ def crear_temporada(
     
     return nueva_temporada
 
+@router.get("/{prenda_id}/variantes")
+def obtener_variantes_prenda(prenda_id: int, db: Session = Depends(get_db)):
+    # Buscamos todas las variantes de esta prenda
+    variantes = db.query(VariantePrenda).filter(VariantePrenda.prenda_id == prenda_id).all()
+    
+    resultado = []
+    for v in variantes:
+        # Sumamos el stock de esta variante en todas las sucursales
+        stock = db.query(func.sum(Inventario.stock_disponible)).filter(Inventario.variante_id == v.id).scalar() or 0
+        resultado.append({
+            "id": v.id,
+            "talla": v.talla,
+            "color": v.color,
+            "sku": v.codigo_sku,
+            "stock": stock
+        })
+    return resultado
 
 # ==========================================
 # 3. RUTAS DINÁMICAS
@@ -277,3 +318,24 @@ def eliminar_prenda(
     registrar_bitacora(db, usuario_actual.id, "ELIMINAR", "prendas", prenda_id, f"Se eliminó la prenda con ID: {prenda_id}")
     
     return {"mensaje": "Prenda eliminada con éxito"}
+
+@router.get("/dashboard/resumen")
+def obtener_resumen_dashboard(
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_usuario_actual)
+):
+    total_prendas = db.query(Prenda).count()
+    total_sucursales = db.query(Sucursal).count()
+    total_proveedores = db.query(Proveedor).count()
+    total_categorias = db.query(Categoria).count()
+    
+    # Sumamos todo el stock disponible en todas las sucursales
+    stock_total = db.query(func.sum(Inventario.stock_disponible)).scalar() or 0
+    
+    return {
+        "total_prendas": total_prendas,
+        "total_sucursales": total_sucursales,
+        "total_proveedores": total_proveedores,
+        "total_categorias": total_categorias,
+        "stock_total": stock_total
+    }
