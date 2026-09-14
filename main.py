@@ -2,24 +2,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.api.endpoints import reservas, catalogo, usuarios, auditoria
-
-# NUEVO: INICIALIZACIÓN DE LA BASE DE DATOS
 from app.db.database import engine, Base
-# Importamos el modelo para que SQLAlchemy sepa que existe y debe crearlo.
 from app.models.auditoria import Bitacora 
 
-# Esta es la orden mágica que crea la tabla "bitacora" en PostgreSQL si no existe
+# Inicialización de la BD
 Base.metadata.create_all(bind=engine)
-# ==========================================
 
 app = FastAPI(title="FashionStore API")
-app.mount("/static", StaticFiles(directory="static"), name="static")
-app.include_router(usuarios.router, prefix="/api/usuarios", tags=["Usuarios"])
 
+# 1. CORS Middleware SIEMPRE va primero
 origins = [
-    "http://localhost:4200",     # Permite a tu servidor de Angular local
+    "http://localhost:4200",     
     "http://127.0.0.1:4200",
-    "https://fashionstore-web.onrender.com" # Alternativa de localhost
+    "https://fashionstore-web.onrender.com" 
 ]
 
 app.add_middleware(
@@ -30,6 +25,7 @@ app.add_middleware(
     allow_headers=["*"],         
 )
 
+# 2. Rutas y archivos estáticos van DESPUÉS
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(usuarios.router, prefix="/api/usuarios", tags=["Usuarios"])
 app.include_router(catalogo.router, prefix="/api/catalogo", tags=["Catálogo"])
