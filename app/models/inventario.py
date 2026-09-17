@@ -80,3 +80,39 @@ class Coleccion(Base):
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String(100), nullable=False)     # Ej: "Urbana 2026"
     descripcion = Column(String(255), nullable=True) # Ej: "Prendas casuales de algodón"
+    
+
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
+from sqlalchemy.orm import relationship
+import datetime
+
+# Tabla para la cabecera de la factura/recibo
+class Orden(Base):
+    __tablename__ = "ordenes"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    nombre_cliente = Column(String(100))
+    correo_cliente = Column(String(100))
+    telefono_cliente = Column(String(20))
+    direccion_envio = Column(String(200), nullable=True) # Puede ser nulo si recoge en tienda
+    
+    total = Column(Float)
+    fecha_orden = Column(DateTime, default=datetime.datetime.utcnow)
+    estado = Column(String(50), default="PENDIENTE") # PENDIENTE, PAGADO, ENVIADO
+    
+    # Relación con los detalles
+    detalles = relationship("DetalleOrden", back_populates="orden")
+
+# Tabla para los ítems dentro de esa orden
+class DetalleOrden(Base):
+    __tablename__ = "detalles_orden"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    orden_id = Column(Integer, ForeignKey("ordenes.id"))
+    prenda_id = Column(Integer, ForeignKey("prendas.id"))
+    variante_id = Column(Integer, ForeignKey("variantes_prenda.id")) # Crucial para el stock
+    
+    cantidad = Column(Integer)
+    precio_unitario = Column(Float)
+    
+    orden = relationship("Orden", back_populates="detalles")

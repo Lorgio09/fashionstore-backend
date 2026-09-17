@@ -34,3 +34,17 @@ class ReservaResponse(ReservaBase):
 
     class Config:
         from_attributes = True
+        
+class ItemCarritoCreate(BaseModel):
+    prenda_id: int
+    variante_id: int
+    cantidad: int
+    precio: float
+
+# El paquete completo que llega desde Angular
+class OrdenCreate(BaseModel):
+    nombre_cliente: str
+    correo_cliente: str
+    telefono_cliente: str
+    direccion_envio: Optional[str] = None
+    items: List[ItemCarritoCreate]
