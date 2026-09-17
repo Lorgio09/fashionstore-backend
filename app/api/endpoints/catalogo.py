@@ -9,7 +9,7 @@ from app.db.database import SessionLocal, engine
 from app.models.inventario import Prenda, Categoria, Proveedor, Sucursal, Inventario, VariantePrenda, Temporada, Coleccion, Orden, DetalleOrden
 from app.models.usuarios import Usuario
 from app.schemas.catalogo import PrendaResponse, PrendaCreate, CategoriaBase, CategoriaResponse, ProveedorBase, ProveedorResponse, VarianteStockCreate, TemporadaBase, TemporadaResponse,ColeccionBase,ColeccionResponse
-from sqlalchemy import func
+from sqlalchemy import func,text
 from app.models.inventario import Base
 from app.schemas.reservas import OrdenCreate
 
