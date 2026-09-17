@@ -61,7 +61,7 @@ def crear_prenda(
     with open(ruta_guardado, "wb") as buffer:
         shutil.copyfileobj(imagen.file, buffer)
 
-    url_imagen_db = f"http://localhost:8000/static/imagenes/{nombre_archivo}"
+    url_imagen_db =f"https://fashionstore-api-kedu.onrender.com/static/imagenes/{nombre_archivo}"
 
     nueva_prenda = Prenda(
         nombre=nombre,
@@ -291,7 +291,7 @@ def actualizar_prenda(
         ruta_guardado = f"static/imagenes/{nombre_archivo}"
         with open(ruta_guardado, "wb") as buffer:
             shutil.copyfileobj(imagen.file, buffer)
-        prenda.imagen_url = f"http://localhost:8000/static/imagenes/{nombre_archivo}"
+        prenda.imagen_url = f"https://fashionstore-api-kedu.onrender.com/static/imagenes/{nombre_archivo}"
 
     db.commit()
     db.refresh(prenda)
