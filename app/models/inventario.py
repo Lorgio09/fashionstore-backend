@@ -90,13 +90,12 @@ class Orden(Base):
     nombre_cliente = Column(String(100))
     correo_cliente = Column(String(100))
     telefono_cliente = Column(String(20))
-    direccion_envio = Column(String(200), nullable=True) # Puede ser nulo si recoge en tienda
+    direccion_envio = Column(String(200), nullable=True) 
     
     total = Column(Float)
-    fecha_orden = Column(DateTime, default=datetime.datetime.utcnow)
-    estado = Column(String(50), default="PENDIENTE") # PENDIENTE, PAGADO, ENVIADO
+    fecha_orden = Column(DateTime, default=datetime.utcnow)
+    estado = Column(String(50), default="PENDIENTE") 
     
-    # Relación con los detalles
     detalles = relationship("DetalleOrden", back_populates="orden")
 
 # Tabla para los ítems dentro de esa orden
