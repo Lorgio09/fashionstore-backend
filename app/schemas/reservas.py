@@ -41,7 +41,6 @@ class ItemCarritoCreate(BaseModel):
     cantidad: int
     precio: float
 
-# El paquete completo que llega desde Angular
 class OrdenCreate(BaseModel):
     nombre_cliente: str
     correo_cliente: str

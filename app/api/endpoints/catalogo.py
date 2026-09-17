@@ -254,6 +254,77 @@ def obtener_variantes_prenda(prenda_id: int, db: Session = Depends(get_db)):
         })
     return resultado
 
+@router.post("/checkout")
+def procesar_compra(
+    orden_datos: OrdenCreate, # Usamos el molde que acabas de crear
+    db: Session = Depends(get_db)
+):
+    # 1. Por seguridad, calculamos el total real en el backend
+    total_calculado = sum(item.precio * item.cantidad for item in orden_datos.items)
+    
+    # 2. Creamos el registro principal de la compra (Cabecera)
+    nueva_orden = Orden(
+        nombre_cliente=orden_datos.nombre_cliente,
+        correo_cliente=orden_datos.correo_cliente,
+        telefono_cliente=orden_datos.telefono_cliente,
+        direccion_envio=orden_datos.direccion_envio,
+        total=total_calculado,
+        estado="PENDIENTE" # Luego podrías cambiarlo a PAGADO si integras una pasarela
+    )
+    
+    try:
+        db.add(nueva_orden)
+        db.flush() # flush() simula el guardado para darnos un ID temporal sin cerrar la transacción
+        
+        # 3. Guardamos los detalles y actualizamos el inventario
+        for item in orden_datos.items:
+            # A. Registrar el detalle de la orden
+            nuevo_detalle = DetalleOrden(
+                orden_id=nueva_orden.id,
+                prenda_id=item.prenda_id,
+                variante_id=item.variante_id,
+                cantidad=item.cantidad,
+                precio_unitario=item.precio
+            )
+            db.add(nuevo_detalle)
+            
+            # B. Descontar el stock físicamente
+            inventario = db.query(Inventario).filter(Inventario.variante_id == item.variante_id).first()
+            
+            if not inventario:
+                raise ValueError(f"Error: La variante con ID {item.variante_id} no existe en el inventario.")
+                
+            if inventario.stock_disponible < item.cantidad:
+                raise ValueError(f"Stock insuficiente. Solo quedan {inventario.stock_disponible} unidades disponibles.")
+                
+            # Restamos la cantidad comprada
+            inventario.stock_disponible -= item.cantidad
+            
+        # 4. Si el bucle termina sin errores, confirmamos TODOS los cambios juntos
+        db.commit()
+        db.refresh(nueva_orden)
+        
+        return {
+            "mensaje": "¡Orden procesada con éxito!", 
+            "orden_id": nueva_orden.id,
+            "total_pagado": nueva_orden.total
+        }
+        
+    except ValueError as e:
+        db.rollback() # Si falta stock, cancelamos todo el proceso
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error interno del servidor: {str(e)}")
+    
+@router.get("/migrar-tablas-ordenes")
+def crear_tablas_nuevas():
+    try:
+        # create_all genera las tablas que no existen, pero NO borra tus datos actuales
+        Base.metadata.create_all(bind=engine)
+        return {"mensaje": "¡Tablas de Órdenes y Detalles creadas exitosamente en PostgreSQL!"}
+    except Exception as e:
+        return {"error": str(e)}
 # ==========================================
 # 3. RUTAS DINÁMICAS
 # ==========================================
@@ -351,74 +422,3 @@ def arreglar_descripcion_prendas():
     except Exception as e:
         return {"error": str(e)}
     
-@router.post("/checkout")
-def procesar_compra(
-    orden_datos: OrdenCreate, # Usamos el molde que acabas de crear
-    db: Session = Depends(get_db)
-):
-    # 1. Por seguridad, calculamos el total real en el backend
-    total_calculado = sum(item.precio * item.cantidad for item in orden_datos.items)
-    
-    # 2. Creamos el registro principal de la compra (Cabecera)
-    nueva_orden = Orden(
-        nombre_cliente=orden_datos.nombre_cliente,
-        correo_cliente=orden_datos.correo_cliente,
-        telefono_cliente=orden_datos.telefono_cliente,
-        direccion_envio=orden_datos.direccion_envio,
-        total=total_calculado,
-        estado="PENDIENTE" # Luego podrías cambiarlo a PAGADO si integras una pasarela
-    )
-    
-    try:
-        db.add(nueva_orden)
-        db.flush() # flush() simula el guardado para darnos un ID temporal sin cerrar la transacción
-        
-        # 3. Guardamos los detalles y actualizamos el inventario
-        for item in orden_datos.items:
-            # A. Registrar el detalle de la orden
-            nuevo_detalle = DetalleOrden(
-                orden_id=nueva_orden.id,
-                prenda_id=item.prenda_id,
-                variante_id=item.variante_id,
-                cantidad=item.cantidad,
-                precio_unitario=item.precio
-            )
-            db.add(nuevo_detalle)
-            
-            # B. Descontar el stock físicamente
-            inventario = db.query(Inventario).filter(Inventario.variante_id == item.variante_id).first()
-            
-            if not inventario:
-                raise ValueError(f"Error: La variante con ID {item.variante_id} no existe en el inventario.")
-                
-            if inventario.stock_disponible < item.cantidad:
-                raise ValueError(f"Stock insuficiente. Solo quedan {inventario.stock_disponible} unidades disponibles.")
-                
-            # Restamos la cantidad comprada
-            inventario.stock_disponible -= item.cantidad
-            
-        # 4. Si el bucle termina sin errores, confirmamos TODOS los cambios juntos
-        db.commit()
-        db.refresh(nueva_orden)
-        
-        return {
-            "mensaje": "¡Orden procesada con éxito!", 
-            "orden_id": nueva_orden.id,
-            "total_pagado": nueva_orden.total
-        }
-        
-    except ValueError as e:
-        db.rollback() # Si falta stock, cancelamos todo el proceso
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error interno del servidor: {str(e)}")
-    
-@router.get("/migrar-tablas-ordenes")
-def crear_tablas_nuevas():
-    try:
-        # create_all genera las tablas que no existen, pero NO borra tus datos actuales
-        Base.metadata.create_all(bind=engine)
-        return {"mensaje": "¡Tablas de Órdenes y Detalles creadas exitosamente en PostgreSQL!"}
-    except Exception as e:
-        return {"error": str(e)}

@@ -82,10 +82,6 @@ class Coleccion(Base):
     descripcion = Column(String(255), nullable=True) # Ej: "Prendas casuales de algodón"
     
 
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
-from sqlalchemy.orm import relationship
-import datetime
-
 # Tabla para la cabecera de la factura/recibo
 class Orden(Base):
     __tablename__ = "ordenes"
