@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from app.db.database import SessionLocal
+from app.db.database import SessionLocal, engine
 from app.models.inventario import Prenda, Categoria, Proveedor, Sucursal, Inventario, VariantePrenda, Temporada, Coleccion
 from app.models.usuarios import Usuario
 from app.schemas.catalogo import PrendaResponse, PrendaCreate, CategoriaBase, CategoriaResponse, ProveedorBase, ProveedorResponse, VarianteStockCreate, TemporadaBase, TemporadaResponse,ColeccionBase,ColeccionResponse
@@ -339,3 +339,12 @@ def obtener_resumen_dashboard(
         "total_categorias": total_categorias,
         "stock_total": stock_total
     }
+    
+@router.get("/parche-db")
+def arreglar_descripcion_prendas():
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE prendas ALTER COLUMN descripcion TYPE TEXT;"))
+        return {"mensaje": "¡Columna descripción ampliada con éxito! Ya puedes guardar textos largos."}
+    except Exception as e:
+        return {"error": str(e)}

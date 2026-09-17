@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.endpoints import reservas, catalogo, usuarios, auditoria
 from app.db.database import engine, Base
 from app.models.auditoria import Bitacora 
+from sqlalchemy import text
 
 # Inicialización de la BD
 Base.metadata.create_all(bind=engine)
@@ -35,3 +36,13 @@ app.include_router(auditoria.router, prefix="/api/auditoria", tags=["Auditoría"
 @app.get("/")
 def estado_servidor():
     return {"estado": "API de FashionStore en línea y funcionando"}
+
+@app.get("/api/parche-db")
+def arreglar_descripcion_prendas():
+    try:
+        with engine.begin() as conn:
+            # Esta orden de SQL cambia directamente la columna en tu PostgreSQL
+            conn.execute(text("ALTER TABLE prendas ALTER COLUMN descripcion TYPE TEXT;"))
+        return {"mensaje": "¡Columna descripción ampliada con éxito! Ya puedes guardar textos largos."}
+    except Exception as e:
+        return {"error": str(e)}

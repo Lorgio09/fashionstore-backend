@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime,Date
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime,Date, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.db.database import Base 
@@ -21,7 +21,7 @@ class Prenda(Base):
     __tablename__ = "prendas"
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String(100), nullable=False)
-    descripcion = Column(String(255))
+    descripcion = Column(Text, nullable=True)
     precio_base = Column(Float, nullable=False)
     
     imagen_url = Column(String(255), nullable=True)
