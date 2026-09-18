@@ -1,4 +1,5 @@
 import os
+import stripe
 import shutil
 import requests
 from uuid import uuid4
@@ -18,6 +19,7 @@ import base64
 # Importaciones de seguridad y auditoría
 from app.core.security import get_usuario_actual, registrar_bitacora
 
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 router = APIRouter()
 os.makedirs("static/imagenes", exist_ok=True)
 
@@ -405,6 +407,75 @@ def crear_tablas_nuevas():
         return {"mensaje": "¡Tablas de Órdenes y Detalles creadas exitosamente en PostgreSQL!"}
     except Exception as e:
         return {"error": str(e)}
+    
+@router.post("/checkout/stripe")
+def procesar_compra_stripe(
+    orden_datos: OrdenCreate,
+    db: Session = Depends(get_db)
+):
+    total_calculado = sum(item.precio * item.cantidad for item in orden_datos.items)
+    
+    # 1. Guardar la orden como PENDIENTE
+    nueva_orden = Orden(
+        nombre_cliente=orden_datos.nombre_cliente,
+        correo_cliente=orden_datos.correo_cliente,
+        telefono_cliente=orden_datos.telefono_cliente,
+        direccion_envio=orden_datos.direccion_envio,
+        total=total_calculado,
+        estado="PENDIENTE"
+    )
+    
+    try:
+        db.add(nueva_orden)
+        db.flush()
+        
+        for item in orden_datos.items:
+            nuevo_detalle = DetalleOrden(
+                orden_id=nueva_orden.id,
+                prenda_id=item.prenda_id,
+                variante_id=item.variante_id,
+                cantidad=item.cantidad,
+                precio_unitario=item.precio
+            )
+            db.add(nuevo_detalle)
+            
+        db.commit()
+        db.refresh(nueva_orden)
+
+        # 2. Empacar los items para Stripe (exige el precio en centavos, ej: 100 Bs = 10000)
+        line_items_stripe = []
+        for item in orden_datos.items:
+            line_items_stripe.append({
+                "price_data": {
+                    "currency": "bob", # O "usd" si tu cuenta de Stripe no soporta bolivianos
+                    "product_data": {
+                        "name": f"Prenda (ID: {item.prenda_id}, Var: {item.variante_id})",
+                    },
+                    "unit_amount": int(item.precio * 100), 
+                },
+                "quantity": item.cantidad,
+            })
+
+        # 3. Crear la sesión de pago
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=line_items_stripe,
+            mode='payment',
+            # Redirecciones automáticas tras el pago
+            success_url="https://fashionstore-web.onrender.com/?pago=exitoso",
+            cancel_url="https://fashionstore-web.onrender.com/checkout",
+            client_reference_id=str(nueva_orden.id)
+        )
+
+        return {
+            "mensaje": "Sesión de Stripe creada", 
+            "orden_id": nueva_orden.id,
+            "url_pago": session.url
+        }
+            
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error con Stripe: {str(e)}")
 # ==========================================
 # 3. RUTAS DINÁMICAS
 # ==========================================
