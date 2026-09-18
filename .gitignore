@@ -11,3 +11,5 @@ __pycache__/
 
 # Base de datos local (si se usa SQLite de prueba)
 *.sqlite3
+
+certificados/

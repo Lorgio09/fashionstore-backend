@@ -1,5 +1,6 @@
 import os
 import shutil
+import requests
 from uuid import uuid4
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -12,6 +13,7 @@ from app.schemas.catalogo import PrendaResponse, PrendaCreate, CategoriaBase, Ca
 from sqlalchemy import func,text
 from app.models.inventario import Base
 from app.schemas.reservas import OrdenCreate
+import base64
 
 # Importaciones de seguridad y auditoría
 from app.core.security import get_usuario_actual, registrar_bitacora
@@ -255,30 +257,28 @@ def obtener_variantes_prenda(prenda_id: int, db: Session = Depends(get_db)):
     return resultado
 
 @router.post("/checkout")
-def procesar_compra(
-    orden_datos: OrdenCreate, # Usamos el molde que acabas de crear
+def procesar_compra_bcp(
+    orden_datos: OrdenCreate,
     db: Session = Depends(get_db)
 ):
-    # 1. Por seguridad, calculamos el total real en el backend
+    # 1. Calcular total y guardar la orden como PENDIENTE
     total_calculado = sum(item.precio * item.cantidad for item in orden_datos.items)
     
-    # 2. Creamos el registro principal de la compra (Cabecera)
     nueva_orden = Orden(
         nombre_cliente=orden_datos.nombre_cliente,
         correo_cliente=orden_datos.correo_cliente,
         telefono_cliente=orden_datos.telefono_cliente,
         direccion_envio=orden_datos.direccion_envio,
         total=total_calculado,
-        estado="PENDIENTE" # Luego podrías cambiarlo a PAGADO si integras una pasarela
+        estado="PENDIENTE"
     )
     
     try:
         db.add(nueva_orden)
-        db.flush() # flush() simula el guardado para darnos un ID temporal sin cerrar la transacción
+        db.flush()
         
-        # 3. Guardamos los detalles y actualizamos el inventario
+        # Guardar detalles (Aún no descontamos el stock físico del Inventario)
         for item in orden_datos.items:
-            # A. Registrar el detalle de la orden
             nuevo_detalle = DetalleOrden(
                 orden_id=nueva_orden.id,
                 prenda_id=item.prenda_id,
@@ -288,34 +288,76 @@ def procesar_compra(
             )
             db.add(nuevo_detalle)
             
-            # B. Descontar el stock físicamente
-            inventario = db.query(Inventario).filter(Inventario.variante_id == item.variante_id).first()
-            
-            if not inventario:
-                raise ValueError(f"Error: La variante con ID {item.variante_id} no existe en el inventario.")
-                
-            if inventario.stock_disponible < item.cantidad:
-                raise ValueError(f"Stock insuficiente. Solo quedan {inventario.stock_disponible} unidades disponibles.")
-                
-            # Restamos la cantidad comprada
-            inventario.stock_disponible -= item.cantidad
-            
-        # 4. Si el bucle termina sin errores, confirmamos TODOS los cambios juntos
         db.commit()
         db.refresh(nueva_orden)
+
+        # 2. Extraer credenciales del entorno
+        bcp_user = os.getenv('BCP_USER')
+        bcp_password = os.getenv('BCP_PASSWORD')
+        bcp_public_token = os.getenv('BCP_PUBLIC_TOKEN')
+        bcp_app_user = os.getenv('BCP_APP_USER')
+        bcp_business = os.getenv('BCP_BUSINESS_CODE')
         
-        return {
-            "mensaje": "¡Orden procesada con éxito!", 
-            "orden_id": nueva_orden.id,
-            "total_pagado": nueva_orden.total
+        if not all([bcp_user, bcp_password, bcp_public_token, bcp_app_user, bcp_business]):
+            raise ValueError("Faltan credenciales del BCP en el entorno (.env).")
+
+        # 3. Codificar credenciales para Basic Auth
+        credenciales = f"{bcp_user}:{bcp_password}"
+        bcp_auth = base64.b64encode(credenciales.encode()).decode()
+
+        # 4. Configurar la petición a la API del BCP
+        url = "https://sandbox.openbanking.bcp.com.bo/Web_ApiQr/api/v4/Qr/Generated"
+        headers = {
+            'Content-Type': 'application/json',
+            'Correlation-Id': f'FASHIONSTORE-{nueva_orden.id}', 
+            'Authorization': f'Basic {bcp_auth}' 
+        }
+        body = {
+            "appUserId": bcp_app_user,
+            "currency": "BOB",
+            "amount": total_calculado,
+            "gloss": f"Pago de Orden {nueva_orden.id}",
+            "serviceCode": "050",
+            "businessCode": bcp_business,
+            "singleUse": True,
+            "enableBank": "ALL",
+            "city": "Santa Cruz",
+            "branchOffice": "Ventas Web",
+            "teller": "Caja Ecommerce",
+            "phoneNumber": "+591 63604323",
+            "publicToken": bcp_public_token,
+            "expiration": "01/02:00",
+            "collectors": [
+                {
+                    "name": "OrdenID",
+                    "parameter": "Ecommerce",
+                    "value": str(nueva_orden.id)
+                }
+            ]
         }
         
-    except ValueError as e:
-        db.rollback() # Si falta stock, cancelamos todo el proceso
-        raise HTTPException(status_code=400, detail=str(e))
+        # 5. Ejecutar la petición usando los certificados físicos
+        cert_path = ('certificados/bcp_cert.crt', 'certificados/bcp_key.key')
+        response = requests.post(url, json=body, headers=headers, cert=cert_path, verify=False, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json().get('data', {})
+            qr_base64 = data.get('qrImage')
+            bcp_transaction_id = str(data.get('id'))
+            
+            # Devolvemos el texto base64 del QR a Angular
+            return {
+                "mensaje": "Orden registrada y QR generado", 
+                "orden_id": nueva_orden.id,
+                "qr_imagen_base64": qr_base64,
+                "transaccion_bcp": bcp_transaction_id
+            }
+        else:
+            raise ValueError(f"Error BCP: {response.text}")
+            
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error interno del servidor: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al procesar el pago: {str(e)}")
     
 @router.get("/migrar-tablas-ordenes")
 def crear_tablas_nuevas():
