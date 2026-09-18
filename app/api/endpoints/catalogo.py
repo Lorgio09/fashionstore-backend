@@ -40,6 +40,17 @@ class SucursalCreate(BaseModel):
 class ProveedorCreate(BaseModel):
     nombre: str
 
+class ItemVentaPresencial(BaseModel):
+    prenda_id: int
+    variante_id: int
+    cantidad: int
+    precio: float
+
+class VentaPresencialCreate(BaseModel):
+    sucursal_id: int
+    metodo_pago: str  # EFECTIVO, QR, TARJETA
+    total: float
+    items: List[ItemVentaPresencial]
 # ==========================================
 # 2. RUTAS ESTÁTICAS
 # ==========================================
@@ -573,3 +584,99 @@ def arreglar_descripcion_prendas():
     except Exception as e:
         return {"error": str(e)}
     
+@router.post("/checkout/presencial")
+def registrar_venta_presencial(venta: VentaPresencialCreate, db: Session = Depends(get_db)):
+    try:
+        # 1. Crear la Orden (Ticket)
+        nueva_orden = Orden(
+            nombre_cliente="Cliente Presencial", # En caja rápida a veces no se pide nombre
+            correo_cliente="N/A",
+            telefono_cliente="N/A",
+            direccion_envio="Venta en Tienda Física",
+            total=venta.total,
+            estado="COMPLETADO", # El pago ya se hizo físicamente
+            metodo_pago=venta.metodo_pago,
+            tipo_venta="PRESENCIAL",
+            sucursal_id=venta.sucursal_id
+        )
+        
+        db.add(nueva_orden)
+        db.flush() # Obtenemos el ID de la orden sin hacer commit todavía
+
+        # 2. Registrar el detalle y descontar el stock
+        for item in venta.items:
+            # Guardamos la línea de la factura
+            nuevo_detalle = DetalleOrden(
+                orden_id=nueva_orden.id,
+                prenda_id=item.prenda_id,
+                variante_id=item.variante_id,
+                cantidad=item.cantidad,
+                precio_unitario=item.precio
+            )
+            db.add(nuevo_detalle)
+
+            # Buscamos el stock exacto en LA SUCURSAL DEL CAJERO
+            inventario = db.query(Inventario).filter(
+                Inventario.sucursal_id == venta.sucursal_id,
+                Inventario.variante_id == item.variante_id
+            ).first()
+
+            # Validación de seguridad por si intentan vender algo agotado
+            if not inventario or inventario.stock_disponible < item.cantidad:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Stock insuficiente para la variante {item.variante_id} en esta sucursal."
+                )
+            
+            # Descontamos el stock
+            inventario.stock_disponible -= item.cantidad
+
+        # Si todo sale bien, guardamos definitivamente en la base de datos
+        db.commit()
+        db.refresh(nueva_orden)
+
+        return {
+            "mensaje": "Venta registrada e inventario actualizado",
+            "orden_id": nueva_orden.id,
+            "metodo_pago": venta.metodo_pago
+        }
+
+    except HTTPException as he:
+        db.rollback()
+        raise he
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+    
+@router.get("/inventario/sucursal/{sucursal_id}")
+def obtener_inventario_sucursal(sucursal_id: int, db: Session = Depends(get_db)):
+    # Hacemos un JOIN de las 3 tablas para armar el producto completo
+    resultados = db.query(
+        Inventario.stock_disponible,
+        VariantePrenda.id.label("variante_id"),
+        VariantePrenda.talla,
+        VariantePrenda.color,
+        Prenda.id.label("prenda_id"),
+        Prenda.nombre,
+        Prenda.precio_base
+    ).join(
+        VariantePrenda, Inventario.variante_id == VariantePrenda.id
+    ).join(
+        Prenda, VariantePrenda.prenda_id == Prenda.id
+    ).filter(
+        Inventario.sucursal_id == sucursal_id,
+        Inventario.stock_disponible > 0  # Solo mostramos lo que se puede vender
+    ).all()
+
+    # Formateamos la respuesta para que encaje perfecto con el frontend
+    productos = []
+    for row in resultados:
+        productos.append({
+            "prenda_id": row.prenda_id,
+            "variante_id": row.variante_id,
+            "nombre": f"{row.nombre} ({row.color} - {row.talla})",
+            "precio": row.precio_base,
+            "stock": row.stock_disponible
+        })
+    
+    return productos
