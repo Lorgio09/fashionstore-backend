@@ -337,7 +337,9 @@ def procesar_compra_bcp(
         }
         
         # 5. Ejecutar la petición usando los certificados físicos
-        cert_path = ('certificados/bcp_cert.crt', 'certificados/bcp_key.key')
+        ruta_crt = 'certificados/bcp_cert.crt' if os.path.exists('certificados/bcp_cert.crt') else 'bcp_cert.crt'
+        ruta_key = 'certificados/bcp_key.key' if os.path.exists('certificados/bcp_key.key') else 'bcp_key.key'
+        cert_path = (ruta_crt, ruta_key)
         response = requests.post(url, json=body, headers=headers, cert=cert_path, verify=False, timeout=15)
         
         if response.status_code == 200:
