@@ -361,6 +361,42 @@ def procesar_compra_bcp(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al procesar el pago: {str(e)}")
     
+@router.post("/checkout/{orden_id}/simular-pago")
+def simular_pago_orden(orden_id: int, db: Session = Depends(get_db)):
+    orden = db.query(Orden).filter(Orden.id == orden_id).first()
+    if not orden:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    
+    if orden.estado != "PENDIENTE":
+        raise HTTPException(status_code=400, detail=f"La orden ya está en estado {orden.estado}")
+
+    # 1. Descontamos el stock físico del inventario
+    for detalle in orden.detalles:
+        inventario = db.query(Inventario).filter(Inventario.variante_id == detalle.variante_id).first()
+        if inventario and inventario.stock_disponible >= detalle.cantidad:
+            inventario.stock_disponible -= detalle.cantidad
+        else:
+            db.rollback()
+            raise HTTPException(status_code=400, detail="Stock insuficiente en el momento de pagar.")
+
+    # 2. Marcamos la orden como pagada
+    orden.estado = "PAGADO"
+    db.commit()
+    
+    return {"mensaje": "Pago exitoso. Stock descontado y orden actualizada.", "estado": "PAGADO"}
+
+
+@router.post("/checkout/{orden_id}/simular-rechazo")
+def simular_rechazo_orden(orden_id: int, db: Session = Depends(get_db)):
+    orden = db.query(Orden).filter(Orden.id == orden_id).first()
+    if not orden:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    
+    orden.estado = "RECHAZADO"
+    db.commit()
+    
+    return {"mensaje": "Pago rechazado. La orden fue cancelada.", "estado": "RECHAZADO"}
+
 @router.get("/migrar-tablas-ordenes")
 def crear_tablas_nuevas():
     try:
