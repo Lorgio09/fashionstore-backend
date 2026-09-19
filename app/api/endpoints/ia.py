@@ -23,7 +23,6 @@ def get_db():
 
 @router.post("/generar-reporte")
 def generar_reporte_ia(request: VozRequest, db: Session = Depends(get_db)):
-    # 1. Validar la clave de Gemini
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(
@@ -32,7 +31,25 @@ def generar_reporte_ia(request: VozRequest, db: Session = Depends(get_db)):
         )
     
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-pro')
+
+    # 1. Detección automática de modelos disponibles para tu clave
+    try:
+        modelos_disponibles = [
+            m.name for m in genai.list_models()
+            if 'generateContent' in m.supported_generation_methods
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error consultando modelos de Gemini: {str(e)}")
+
+    if not modelos_disponibles:
+        raise HTTPException(
+            status_code=400, 
+            detail="Tu API Key no tiene modelos de generación de texto habilitados en Google AI Studio."
+        )
+
+    # Selecciona prioritariamente cualquier modelo 'flash' disponible; si no, toma el primero válido
+    modelo_elegido = next((m for m in modelos_disponibles if 'flash' in m), modelos_disponibles[0])
+    model = genai.GenerativeModel(modelo_elegido)
 
     # 2. Recopilar métricas en tiempo real desde PostgreSQL
     total_prendas = db.query(Prenda).count()
@@ -41,14 +58,13 @@ def generar_reporte_ia(request: VozRequest, db: Session = Depends(get_db)):
     stock_total = db.query(func.sum(Inventario.stock_disponible)).scalar() or 0
     total_reservas = db.query(Reserva).count()
     
-    # Suma de órdenes completadas / pagadas
     ingresos_totales = db.query(func.sum(Orden.total)).filter(
         (Orden.estado == "COMPLETADO") | (Orden.estado == "PAGADO")
     ).scalar() or 0.0
 
-    # 3. Prompt estructurado para análisis de retail
+    # 3. Construcción del Prompt ejecutivo
     prompt = f"""
-    Actúa como el consultor y analista de negocios de 'FashionStore'.
+    Actúa como consultor de negocios de 'FashionStore'.
     
     Métricas actuales del sistema:
     - Modelos de prendas registrados: {total_prendas}
@@ -64,13 +80,16 @@ def generar_reporte_ia(request: VozRequest, db: Session = Depends(get_db)):
     Pautas de respuesta:
     1. Responde a la consulta basándote estrictamente en los datos provistos.
     2. Mantén un tono ejecutivo, analítico y conciso (máximo 2 a 3 párrafos).
-    3. Incluye una breve recomendación estratégica o de alerta si el stock o las ventas lo ameritan.
+    3. Incluye una breve recomendación sobre stock o ventas si corresponde.
     4. Usa formato Markdown limpio (viñetas y negritas).
     """
     
-    # 4. Invocación al modelo generativo
+    # 4. Generación del reporte
     try:
         respuesta = model.generate_content(prompt)
-        return {"reporte": respuesta.text}
+        return {
+            "reporte": respuesta.text,
+            "modelo_usado": modelo_elegido
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al conectar con el servicio de IA: {str(e)}")
