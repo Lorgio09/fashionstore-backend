@@ -353,7 +353,7 @@ def procesar_compra_bcp(
         ruta_crt = 'certificados/bcp_cert.crt' if os.path.exists('certificados/bcp_cert.crt') else 'bcp_cert.crt'
         ruta_key = 'certificados/bcp_key.key' if os.path.exists('certificados/bcp_key.key') else 'bcp_key.key'
         cert_path = (ruta_crt, ruta_key)
-        response = requests.post(url, json=body, headers=headers, cert=cert_path, verify=False, timeout=15)
+        response = requests.post(url, json=body, headers=headers, cert=cert_path, verify=False, timeout=45)
         
         if response.status_code == 200:
             data = response.json().get('data', {})
@@ -589,15 +589,13 @@ def registrar_venta_presencial(venta: VentaPresencialCreate, db: Session = Depen
     try:
         # 1. Crear la Orden (Ticket)
         nueva_orden = Orden(
-            nombre_cliente="Cliente Presencial", # En caja rápida a veces no se pide nombre
+            nombre_cliente="Cliente Presencial", 
             correo_cliente="N/A",
             telefono_cliente="N/A",
             direccion_envio="Venta en Tienda Física",
             total=venta.total,
-            estado="COMPLETADO", # El pago ya se hizo físicamente
-            metodo_pago=venta.metodo_pago,
-            tipo_venta="PRESENCIAL",
-            sucursal_id=venta.sucursal_id
+            estado="COMPLETADO" 
+            # ELIMINAMOS metodo_pago, tipo_venta y sucursal_id porque no existen en la tabla Orden
         )
         
         db.add(nueva_orden)
