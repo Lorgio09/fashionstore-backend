@@ -6,8 +6,6 @@ from app.db.database import SessionLocal
 from app.models.usuarios import Usuario, Rol
 from app.models.inventario import Sucursal
 from app.schemas.usuarios import UsuarioCreate, UsuarioResponse, ClienteCreate
-
-# ¡Aquí está la magia! Importamos la seguridad desde nuestro core
 from app.core.security import get_password_hash, verify_password, create_access_token, get_usuario_actual
 
 router = APIRouter()
@@ -90,7 +88,11 @@ def login_usuario(usuario: UsuarioLogin, db: Session = Depends(get_db)):
     
     # Generamos la llave maestra (Token JWT)
     access_token = create_access_token(
-        data={"sub": db_user.email, "rol": db_user.rol_id, "nombre": db_user.nombre_completo}
+        data={
+            "sub": db_user.email, 
+            "id": db_user.id,
+            "rol": db_user.rol_id, 
+            "nombre": db_user.nombre_completo}
     )
     
     return {
