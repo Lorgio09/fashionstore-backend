@@ -51,6 +51,10 @@ class VentaPresencialCreate(BaseModel):
     metodo_pago: str  # EFECTIVO, QR, TARJETA
     total: float
     items: List[ItemVentaPresencial]
+    
+class ItemCarritoCheck(BaseModel):
+    variante_id: int
+    cantidad: int
 # ==========================================
 # 2. RUTAS ESTÁTICAS
 # ==========================================
@@ -678,3 +682,32 @@ def obtener_inventario_sucursal(sucursal_id: int, db: Session = Depends(get_db))
         })
     
     return productos
+
+@router.post("/sucursales-disponibles")
+def obtener_sucursales_disponibles(items: List[ItemCarritoCheck], db: Session = Depends(get_db)):
+    todas_sucursales = db.query(Sucursal).all()
+    sucursales_validas = []
+
+    for sucursal in todas_sucursales:
+        disponible = True
+        
+        # Verificamos si esta sucursal tiene stock de TODO el carrito
+        for item in items:
+            inventario = db.query(Inventario).filter(
+                Inventario.sucursal_id == sucursal.id,
+                Inventario.variante_id == item.variante_id
+            ).first()
+            
+            # Si no hay inventario o no alcanza, descartamos esta sucursal
+            if not inventario or inventario.stock_disponible < item.cantidad:
+                disponible = False
+                break 
+        
+        # Si pasó la prueba de todos los items, la agregamos a la lista
+        if disponible:
+            sucursales_validas.append({
+                "id": sucursal.id,
+                "nombre": sucursal.nombre
+            })
+            
+    return sucursales_validas
