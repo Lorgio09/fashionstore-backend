@@ -25,3 +25,4 @@ python-multipart==0.0.9
 email-validator==2.1.1
 requests
 stripe
+google-generativeai
