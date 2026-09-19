@@ -15,6 +15,7 @@ from sqlalchemy import func,text
 from app.models.inventario import Base
 from app.schemas.reservas import OrdenCreate
 import base64
+from app.models.inventario import Categoria
 
 # Importaciones de seguridad y auditoría
 from app.core.security import get_usuario_actual, registrar_bitacora
@@ -711,3 +712,35 @@ def obtener_sucursales_disponibles(items: List[ItemCarritoCheck], db: Session = 
             })
             
     return sucursales_validas
+
+@router.get("/ordenes/historial")
+def obtener_historial_ventas(db: Session = Depends(get_db)):
+    # Traemos las órdenes ordenadas de la más reciente a la más antigua
+    ordenes = db.query(Orden).order_by(Orden.id.desc()).all()
+    return ordenes
+
+@router.get("/agrupado/secciones")
+def obtener_catalogo_por_secciones(db: Session = Depends(get_db)):
+    categorias = db.query(Categoria).all()
+    resultado = []
+    
+    for cat in categorias:
+        prendas_data = []
+        for prenda in cat.prendas:
+            prendas_data.append({
+                "prenda_id": prenda.id,
+                "nombre": prenda.nombre,
+                "precio": prenda.precio_base,
+                "imagen_url": prenda.imagen_url,
+                "variantes": [{"id": v.id, "talla": v.talla, "color": v.color} for v in prenda.variantes]
+            })
+        
+        # Solo mandamos la sección si tiene prendas adentro
+        if prendas_data:
+            resultado.append({
+                "id_seccion": cat.id,
+                "nombre_seccion": cat.nombre, 
+                "prendas": prendas_data
+            })
+            
+    return resultado
