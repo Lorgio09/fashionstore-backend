@@ -7,7 +7,7 @@ from sqlalchemy import func
 
 from app.db.database import SessionLocal
 # Ajusta estas importaciones según cómo se llamen tus modelos reales
-from app.models.catalogo import Prenda, Sucursal, Categoria, Inventario 
+from app.models.inventario import Prenda, Sucursal, Categoria, Inventario 
 from app.models.reservas import Orden
 
 router = APIRouter()
