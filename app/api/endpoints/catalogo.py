@@ -1,4 +1,6 @@
 import os
+import cloudinary
+import cloudinary.uploader
 import stripe
 import shutil
 import requests
@@ -22,7 +24,13 @@ from app.core.security import get_usuario_actual, registrar_bitacora
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 router = APIRouter()
-os.makedirs("static/imagenes", exist_ok=True)
+
+cloudinary.config( 
+  cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME"), 
+  api_key = os.getenv("CLOUDINARY_API_KEY"), 
+  api_secret = os.getenv("CLOUDINARY_API_SECRET"),
+  secure = True
+)
 
 def get_db():
     db = SessionLocal()
@@ -74,16 +82,11 @@ def crear_prenda(
     proveedor_id: int = Form(...),
     imagen: UploadFile = File(...), 
     db: Session = Depends(get_db),
-    usuario_actual: Usuario = Depends(get_usuario_actual) # ¡Guardia!
+    usuario_actual: Usuario = Depends(get_usuario_actual)
 ):
-    extension = imagen.filename.split(".")[-1]
-    nombre_archivo = f"{uuid4()}.{extension}"
-    ruta_guardado = f"static/imagenes/{nombre_archivo}"
-
-    with open(ruta_guardado, "wb") as buffer:
-        shutil.copyfileobj(imagen.file, buffer)
-
-    url_imagen_db =f"https://fashionstore-api-kedu.onrender.com/static/imagenes/{nombre_archivo}"
+    # Subimos a Cloudinary
+    resultado_nube = cloudinary.uploader.upload(imagen.file, folder="fashionstore_prendas")
+    url_imagen_db = resultado_nube.get("secure_url")
 
     nueva_prenda = Prenda(
         nombre=nombre,
@@ -98,10 +101,7 @@ def crear_prenda(
         db.add(nueva_prenda)
         db.commit()
         db.refresh(nueva_prenda)
-        
-        # AUDITORÍA
         registrar_bitacora(db, usuario_actual.id, "INSERTAR", "prendas", nueva_prenda.id, f"Se creó la prenda: {nueva_prenda.nombre}")
-        
         return nueva_prenda
     except Exception as e:
         db.rollback()
@@ -525,20 +525,15 @@ def actualizar_prenda(
     if categoria_id: prenda.categoria_id = categoria_id
     if proveedor_id: prenda.proveedor_id = proveedor_id
 
+    # Si suben una imagen nueva, la mandamos a Cloudinary
     if imagen:
-        extension = imagen.filename.split(".")[-1]
-        nombre_archivo = f"{uuid4()}.{extension}"
-        ruta_guardado = f"static/imagenes/{nombre_archivo}"
-        with open(ruta_guardado, "wb") as buffer:
-            shutil.copyfileobj(imagen.file, buffer)
-        prenda.imagen_url = f"https://fashionstore-api-kedu.onrender.com/static/imagenes/{nombre_archivo}"
+        resultado_nube = cloudinary.uploader.upload(imagen.file, folder="fashionstore_prendas")
+        prenda.imagen_url = resultado_nube.get("secure_url")
 
     db.commit()
     db.refresh(prenda)
     
-    # AUDITORÍA
     registrar_bitacora(db, usuario_actual.id, "MODIFICAR", "prendas", prenda.id, f"Se editó la prenda con ID: {prenda.id}")
-    
     return prenda
 
 @router.delete("/{prenda_id}")
