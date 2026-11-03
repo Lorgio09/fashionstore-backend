@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.db.database import SessionLocal
+from app.core.contexto import Contexto, requiere_funcion
 from app.models.inventario import Prenda, Sucursal, Categoria, Inventario, Orden
 from app.models.reservas import Reserva
 
@@ -14,15 +14,10 @@ router = APIRouter()
 class VozRequest(BaseModel):
     texto_voz: str
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
 @router.post("/generar-reporte")
-def generar_reporte_ia(request: VozRequest, db: Session = Depends(get_db)):
+def generar_reporte_ia(request: VozRequest, ctx: Contexto = Depends(requiere_funcion("reportes_ia"))):
+    # RN07: solo plan Profesional con suscripción vigente. Las consultas quedan filtradas por empresa.
+    db: Session = ctx.db
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(
@@ -47,7 +42,7 @@ def generar_reporte_ia(request: VozRequest, db: Session = Depends(get_db)):
             detail="Tu API Key no tiene modelos de generación de texto habilitados en Google AI Studio."
         )
 
-    # Selecciona prioritariamente cualquier modelo 'flash' disponible; si no, toma el primero válido
+    # Selecciona prioritariamente cualquier modelo disponible; si no, toma el primero válido
     modelo_elegido = next((m for m in modelos_disponibles if 'flash' in m), modelos_disponibles[0])
     model = genai.GenerativeModel(modelo_elegido)
 

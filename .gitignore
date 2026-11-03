@@ -13,3 +13,5 @@ __pycache__/
 *.sqlite3
 
 certificados/
+# Pruebas
+.pytest_cache/

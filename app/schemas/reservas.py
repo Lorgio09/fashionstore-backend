@@ -22,7 +22,8 @@ class ReservaBase(BaseModel):
     sucursal_id: int
 
 class ReservaCreate(ReservaBase):
-    cliente_id: int
+    # Si reserva un Cliente se usa su propio id; si reserva el personal, debe indicarse.
+    cliente_id: Optional[int] = None
     detalles: List[DetalleReservaCreate] # lista de prendas
 
 class ReservaResponse(ReservaBase):
