@@ -1,6 +1,7 @@
 # Contrato API — FashionStore SaaS (parcial 2)
 
-Versión 3 · 2026-11-04 · Fuente única para la PWA (Angular) y la app móvil (Flutter).
+Versión 4 · 2026-11-04 · Fuente única para la PWA (Angular) y la app móvil (Flutter).
+Cambios v4: módulo de analítica con Machine Learning y dashboard (§8); 3 reportes inteligentes nuevos en §7.1.
 Cambios v3: reportes generativos con IA (§7) y empresa demo "Estilo Urbano" con 6 meses de ventas (§1).
 Cambios v2: sincronización offline (§6) implementada y probada; nuevo estado `ERROR`, `fecha_visita` en hora local y formato de conflictos y registro.
 Si algo de este contrato no alcanza, **no inventes el endpoint**: anótalo y pídelo al backend.
@@ -317,6 +318,11 @@ Cómo se resuelve:
 - `productos_mas_vendidos`: ranking. **Barras** horizontales.
 - `ingresos_por_categoria`: **torta**.
 - `stock_bajo`: stock actual; no usa fechas. **Barras**.
+- `prediccion_demanda` (ML): fechas **futuras**, por defecto de mañana a 7 días y como máximo 28. Muestra unidades estimadas, rango, stock, cobertura y alerta. **Barras**.
+- `segmentos_clientes` (ML): toda la empresa; no usa fechas ni sucursal. **Torta**.
+- `evaluacion_modelos` (ML): tabla de métricas, sin gráfico.
+
+Los reportes de ML necesitan un modelo entrenado. Si no existe, se entrena solo la primera vez, y tarda unos 7 s.
 
 ### 7.2 Intención (lo que se edita en los filtros)
 ```json
@@ -369,3 +375,80 @@ Listas para los selectores de filtros (ya existen): `GET /catalogo/sucursales` (
   - Selector para cambiar el tipo de gráfico.
 - **Filtros editables** (fechas, sucursales, categorías, agrupación, canal, límite) que llaman a `/ia/reportes/ejecutar` sin gastar IA.
 - **Botones "PDF" y "Excel"** (`/ia/reportes/exportar`), que envían la `intencion` actual y la `narrativa` mostrada.
+
+---
+
+## 8. Analítica inteligente con Machine Learning ✅ (solo web)
+
+**Acceso:** igual que los reportes IA: plan **Profesional**, Administrador y Encargado. El Encargado ve solo su sucursal, porque el backend la fuerza. **Solo el Administrador entrena.**
+**Modelos por empresa:** cada empresa entrena solo con sus propios datos. Si no tiene historial suficiente (84 días y 200 ventas para demanda; 10 clientes con compras para segmentación), responde **409** con `detail`.
+**Empresa para la demo:** Estilo Urbano (§1).
+
+| Método | Ruta | Uso |
+|---|---|---|
+| POST | `/ml/entrenar` | Entrena demanda y segmentación (unos 7 s). Devuelve `{demanda: {...}, segmentacion: {...}}`, cada uno con `version`, `algoritmo`, `entrenado_en`, `parametros`, `datos` y `metricas`, o con `{error}` si ese modelo no tiene datos |
+| GET | `/ml/modelos` | Modelos activos, con el mismo formato pero sin el binario |
+| GET | `/ml/demanda?dias=7&sucursal_id=&categoria_id=` | Predicción desde hoy (`dias` de 1 a 28) |
+| GET | `/ml/reposicion?sucursal_id=&limite=10` | Variantes (talla/color) que se agotarían antes de 14 días |
+| GET | `/ml/segmentos` | Segmentos y la asignación de cada cliente |
+| GET | `/ml/dashboard?sucursal_id=` | Todo lo necesario para el dashboard analítico |
+
+### 8.1 Modelos (para mostrar en la pantalla "Modelos" y para la defensa)
+- **Demanda (supervisado):** `HistGradientBoostingRegressor` con pérdida Poisson.
+  - **Predice:** las unidades por día, sucursal y categoría.
+  - **Validación temporal:** las últimas 4 semanas como prueba, más una validación cruzada de 3 bloques.
+  - **Comparación:** contra el método simple (promedio del mismo día de la semana).
+  - **Métricas** en `metricas.prueba`: `mae`, `rmse`, `r2`, `mae_metodo_simple`, `mejora_vs_simple_pct`, `error_total_pct`, `unidades_reales` y `unidades_predichas`.
+  - **Variables:** `metricas.importancias` trae `[{variable, importancia}]` por permutación. `parametros.variables_descartadas` trae `[{variable, motivo}]`.
+- **Segmentación (no supervisado):** K-Means sobre variables RFM.
+  - **Variables:** recencia, frecuencia, monto, ticket promedio y % de productos caros.
+  - **k:** se elige entre 2 y 6 con el coeficiente de silueta.
+  - **Métricas:** `k`, `silueta`, `davies_bouldin`, `curva` (`[{k, silueta, inercia}]`, que se grafica para justificar k) y `ari_perfiles_sinteticos` (comparación con los perfiles con que se generaron los datos).
+
+### 8.2 `GET /ml/demanda`
+```json
+{ "modelo": {"version": 3, "entrenado_en": "2026-11-04T15:00:00Z"}, "desde": "2026-11-04", "hasta": "2026-11-10",
+  "filas": [ { "sucursal_id": 3, "categoria_id": 11, "sucursal": "Estilo Urbano - Equipetrol", "categoria": "Poleras",
+               "unidades": 31.4, "minimo": 24, "maximo": 39, "promedio_diario": 4.49,
+               "stock": 382, "cobertura_dias": 85.2, "alerta": "OK" } ],     // alerta: CRÍTICO (<7 días) | ATENCIÓN (<14) | OK | — (web: sin stock propio)
+  "diario": [ { "fecha": "2026-11-04", "prediccion": 36.2, "minimo": 29, "maximo": 44 } ] }
+```
+
+### 8.3 `GET /ml/segmentos`
+```json
+{ "modelo": { "version": 3, "entrenado_en": "...", "metricas": { ... } },
+  "segmentos": [ { "segmento": "Premium", "clientes": 9, "porcentaje": 18.0, "recencia_dias": 5.1, "frecuencia": 33.7,
+                   "monto_total": 14301.46, "ticket_promedio": 422.59, "pct_premium": 49.6,
+                   "descripcion": "Compran productos de mayor precio…", "accion_sugerida": "Ofrecer lanzamientos…" } ],
+  "clientes": [ { "cliente_id": 61, "nombre": "…", "email": "…", "segmento": "Premium", "recencia_dias": 3,
+                  "frecuencia": 35, "monto_total": 15210.0, "ticket_promedio": 434.57, "pct_premium": 0.52 } ] }
+```
+Nombres posibles de segmento: Premium, Frecuentes, Ocasionales, En riesgo, Inactivos. Si hay dos con el mismo nombre, llevan sufijo " (2)".
+
+### 8.4 `GET /ml/dashboard`
+```json
+{ "generado_en": "2026-11-04", "comparacion": "01/11–03/11 contra 01/10–03/10",
+  "indicadores": { "ventas_mes": {"valor": 18398.1, "anterior": 21000.0, "variacion_pct": -12.4},
+                   "cantidad_ventas_mes": {...}, "ticket_promedio": {...}, "unidades_mes": {...},
+                   "clientes_activos_30_dias": {...} },
+  "serie": [ { "fecha": "2026-09-05", "real": 41, "prediccion": null, "minimo": null, "maximo": null },
+             { "fecha": "2026-11-04", "real": null, "prediccion": 36.2, "minimo": 29, "maximo": 44 } ],   // 60 días reales + 14 predichos (unidades)
+  "segmentos": [ ...como en 8.3... ],
+  "alertas_reposicion": [ { "producto": "Jean Slim Piraí", "talla": "28", "color": "Negro", "sucursal": "…", "stock": 0,
+                            "demanda_diaria": 0.31, "cobertura_dias": 0.0, "sugerido_reponer": 9, "alerta": "CRÍTICO" } ],
+  "modelos": { "demanda": {...como /ml/modelos...}, "segmentacion": {...} },
+  "avisos": [] }    // mensajes si algún modelo no pudo entrenarse (sin datos suficientes)
+```
+
+### 8.5 Pantalla sugerida: "Analítica"
+1. **Indicadores (KPI):** el valor y la variación contra el mes anterior, con una flecha y el texto de `comparacion`.
+2. **Gráfico de línea:** la `serie` real en línea continua y la predicción en línea punteada, con una banda sombreada entre `minimo` y `maximo`. El eje Y está en unidades por día. Marcar "hoy".
+3. **Segmentos:** torta o barras, más tarjetas con la descripción y la acción sugerida.
+4. **Alertas de reposición:** tabla con insignias CRÍTICO/ATENCIÓN y unidades sugeridas.
+5. **Modelos** (pestaña o sección):
+   - métricas con explicación;
+   - barras de importancia de variables;
+   - curva de silueta por k;
+   - variables descartadas;
+   - botón **"Reentrenar"**, solo para el Administrador, con indicador de carga.
+6. Colores: `paleta` de `GET /ia/reportes/tipos`, en orden y sin rotarlos. Para alertas, usar ícono + texto (no solo color).

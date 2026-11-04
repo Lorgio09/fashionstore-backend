@@ -87,6 +87,15 @@ _PROHIBIDO = re.compile(r"\b(borra\w*|elimina\w*|modifica\w*|actualiza\w*|insert
 
 
 def _tipo_por_reglas(t: str) -> Optional[str]:
+    # Reportes inteligentes del módulo de ML (van primero: "¿qué se va a quedar sin stock?" es una predicción)
+    if re.search(r"predic|pronost|proyecc|(voy|vamos|van) a vender|venderemos|demanda|quedar\w* sin|se van a agotar"
+                 r"|proxim[oa]s? (semana|semanas|dias|mes)|proxima semana|semana que viene", t):
+        return "prediccion_demanda"
+    if re.search(r"segment|(tipos?|grupos?|perfil\w*|clasifica\w*) de (los )?clientes|clientes (frecuentes|premium|inactivos)", t):
+        return "segmentos_clientes"
+    if re.search(r"evaluaci|metricas|precision|precisos|exactitud|que tan (buen|confiable)|error del modelo"
+                 r"|calidad del modelo|rendimiento del modelo|modelos? de (ml|machine|ia)", t):
+        return "evaluacion_modelos"
     if re.search(r"existencia|stock|inventario|agotad|reponer|quedan pocas", t):
         return "stock_bajo"
     if re.search(r"categori", t):
@@ -102,6 +111,17 @@ def _tipo_por_reglas(t: str) -> Optional[str]:
 
 
 def _fechas_por_reglas(t: str, hoy: date) -> tuple[Optional[date], Optional[date]]:
+    # Futuro (predicciones)
+    m = re.search(r"proxim[oa]s? " + _NUM + r" (dias|semanas)", t)
+    if m:
+        n = _numero(m.group(1)) * (7 if m.group(2) == "semanas" else 1)
+        return hoy + timedelta(days=1), hoy + timedelta(days=n)
+    if re.search(r"proxima semana|semana que viene", t):
+        return hoy + timedelta(days=1), hoy + timedelta(days=7)
+    if re.search(r"proximo mes|mes que viene", t):
+        return hoy + timedelta(days=1), hoy + timedelta(days=28)
+    if re.search(r"\bmanana\b", t):
+        return hoy + timedelta(days=1), hoy + timedelta(days=1)
     m = re.search(r"ultim[oa]s? " + _NUM + r" (mes|meses|semana|semanas|dia|dias)", t)
     if m:
         n, unidad = _numero(m.group(1)), m.group(2)
@@ -294,6 +314,7 @@ Responde SOLO con un objeto JSON con estas claves:
 - tipo: uno de los códigos del catálogo o null.
 - fecha_desde, fecha_hasta: "AAAA-MM-DD" o null. Usa la fecha de hoy para "este mes", "la semana pasada",
   "los últimos tres meses", etc. Un mes sin año es el último mes con ese nombre que ya empezó.
+  En "prediccion_demanda" las fechas son FUTURAS ("la próxima semana" = de mañana a 7 días después).
   "Los últimos N meses" va del día 1 del mes de hace N-1 meses hasta hoy (incluye el mes actual);
   "las últimas N semanas" va del lunes de hace N-1 semanas hasta hoy. Si no se indica período, null.
 - agrupacion: "dia", "semana", "mes" o null.
@@ -381,6 +402,24 @@ def narrativa_basica(reporte: dict) -> str:
         f = filas[0]
         return (f"La categoría con mayores ingresos fue {f['categoria']} con {_bs(f['monto'])} "
                 f"({f['participacion']}% de {_bs(tot['monto'])}).")
+    if tipo == "prediccion_demanda":
+        criticas = [f for f in filas if f["alerta"] == "CRÍTICO"]
+        texto = f"{reporte['subtitulo']}: se esperan unas {tot['unidades']} unidades vendidas en total. "
+        if criticas:
+            f = criticas[0]
+            return texto + (f"{len(criticas)} combinación(es) sucursal-categoría tienen stock para menos de 7 días; "
+                            f"la más urgente es {f['etiqueta']} ({f['cobertura_dias']} días de cobertura).")
+        return texto + "Ninguna categoría corre riesgo de quedarse sin stock en ese período."
+    if tipo == "segmentos_clientes":
+        mayor = max(filas, key=lambda f: f["clientes"])
+        valioso = max(filas, key=lambda f: f["monto_total"])
+        return (f"El modelo identificó {len(filas)} segmentos de clientes. El más numeroso es {mayor['segmento']} "
+                f"({mayor['clientes']} clientes) y el de mayor gasto promedio es {valioso['segmento']} "
+                f"({_bs(valioso['monto_total'])}). Acción sugerida: {valioso['accion_sugerida']}")
+    if tipo == "evaluacion_modelos":
+        partes = [f"{f['metrica']}: {f['valor']}" for f in filas
+                  if f["metrica"].startswith(("MAE", "Mejora", "Coeficiente", "ARI"))]
+        return "Resultados de la validación: " + "; ".join(partes) + "."
     f = filas[0]
     return (f"La variante con menor existencia es {f['producto']} talla {f['talla']} color {f['color']} "
             f"en {f['sucursal']}, con {f['stock']} unidades. Conviene revisar la reposición.")

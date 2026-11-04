@@ -271,12 +271,23 @@ def stock_bajo(ctx: Contexto, v: Validada) -> dict:
     }
 
 
+def _ml(nombre: str):
+    """Los reportes del módulo de ML se importan al usarse (evita dependencias circulares y cargar scikit-learn)."""
+    def ejecutor(ctx: Contexto, v: Validada) -> dict:
+        from app.services.reportes import consultas_ml
+        return getattr(consultas_ml, nombre)(ctx, v)
+    return ejecutor
+
+
 EJECUTORES = {
     "ventas_por_periodo": ventas_por_periodo,
     "ventas_por_sucursal": ventas_por_sucursal,
     "productos_mas_vendidos": productos_mas_vendidos,
     "ingresos_por_categoria": ingresos_por_categoria,
     "stock_bajo": stock_bajo,
+    "prediccion_demanda": _ml("prediccion_demanda"),
+    "segmentos_clientes": _ml("segmentos_clientes"),
+    "evaluacion_modelos": _ml("evaluacion_modelos"),
 }
 
 
@@ -287,7 +298,8 @@ def _filtros_legibles(v: Validada) -> list[dict]:
         filtros.append({"campo": "Período", "valor": f"{fmt_fecha(it.fecha_desde)} al {fmt_fecha(it.fecha_hasta)}"})
     if it.agrupacion:
         filtros.append({"campo": "Agrupación", "valor": {"dia": "Por día", "semana": "Por semana", "mes": "Por mes"}[it.agrupacion]})
-    filtros.append({"campo": "Sucursales", "valor": ", ".join(v.sucursales.values()) or "Todas"})
+    if v.tipo.usa_sucursales:
+        filtros.append({"campo": "Sucursales", "valor": ", ".join(v.sucursales.values()) or "Todas"})
     if "categorias" in v.tipo.filtros:
         filtros.append({"campo": "Categorías", "valor": ", ".join(v.categorias.values()) or "Todas"})
     if "productos" in v.tipo.filtros:
@@ -302,8 +314,10 @@ def _filtros_legibles(v: Validada) -> list[dict]:
 def ejecutar(ctx: Contexto, v: Validada) -> dict:
     datos = EJECUTORES[v.tipo.codigo](ctx, v)
     it = v.intencion
-    subtitulo = (f"Del {fmt_fecha(it.fecha_desde)} al {fmt_fecha(it.fecha_hasta)}" if it.fecha_desde
-                 else "Stock actual")
+    subtitulo = datos.get("subtitulo") or (
+        f"Del {fmt_fecha(it.fecha_desde)} al {fmt_fecha(it.fecha_hasta)}" if it.fecha_desde else "Stock actual")
+    vacio = datos["vacio"] if "vacio" in datos else not any(
+        f.get("ventas") or f.get("unidades") or f.get("total") or f.get("stock") is not None for f in datos["filas"])
     return {
         "tipo": v.tipo.codigo,
         "titulo": v.tipo.nombre,
@@ -312,13 +326,10 @@ def ejecutar(ctx: Contexto, v: Validada) -> dict:
         "generado_por": ctx.usuario.nombre_completo,
         "generado_en": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "filtros": _filtros_legibles(v),
-        "supuestos": v.supuestos,
+        "supuestos": [*v.supuestos, *datos.get("notas", [])],
         "columnas": datos["columnas"],
         "filas": datos["filas"],
         "totales": datos["totales"],
-        "grafico": {"tipo": it.grafico, **datos["grafico"]},
-        "vacio": not any(
-            f.get("ventas") or f.get("unidades") or f.get("total") or f.get("stock") is not None
-            for f in datos["filas"]
-        ),
+        "grafico": {"tipo": it.grafico if datos["grafico"]["series"] else "tabla", **datos["grafico"]},
+        "vacio": vacio,
     }

@@ -1,5 +1,5 @@
 """
-Datos sintéticos de la empresa demo "Estilo Urbano" (plan Profesional): catálogo, 3 sucursales,
+Generación de datos sintéticos (examen 8.4, punto 1) de la empresa demo "Estilo Urbano" (plan Profesional): catálogo, 3 sucursales,
 clientes y ~6 meses de ventas con patrones realistas. Sirven para demostrar los reportes con IA
 (examen 8.3) y como conjunto de entrenamiento del módulo de Machine Learning (examen 8.4).
 
@@ -15,7 +15,9 @@ Patrones incluidos (para que el ML tenga algo que descubrir):
 Generación determinista (semilla fija): siempre produce los mismos datos para la misma fecha.
 """
 import random
+import re
 from datetime import date, datetime, timedelta
+from typing import Optional
 
 from app.models.inventario import Categoria, DetalleOrden, Inventario, Orden, Prenda, Proveedor, Sucursal, VariantePrenda
 from app.models.usuarios import ROL_CLIENTE, Rol, Usuario
@@ -67,6 +69,25 @@ NOMBRES = ["Ana", "Luis", "María", "Jorge", "Carla", "Diego", "Valeria", "Marco
            "Fernando", "Daniela", "Sergio", "Gabriela", "Ricardo", "Camila", "Hugo", "Mariana", "Pablo"]
 APELLIDOS = ["Rojas", "Vargas", "Gutiérrez", "Flores", "Mamani", "Suárez", "Justiniano", "Pérez", "Rivero",
              "Antelo", "Quiroga", "Saavedra", "Montaño", "Chávez", "Peña"]
+
+
+def perfil_sintetico(email: str) -> Optional[str]:
+    """Perfil con el que se generó un cliente sintético (la "verdad" para validar la segmentación).
+    Los clientes se crean en el orden de PERFILES: cliente01..14 frecuentes, 15..22 premium, 23..50 ocasionales."""
+    m = re.fullmatch(r"cliente(\d{2})@estilourbano\.demo", email or "")
+    if not m:
+        return None
+    n, limite = int(m.group(1)), 0
+    for perfil, conf in PERFILES.items():
+        limite += conf["cantidad"]
+        if n <= limite:
+            return perfil
+    return None
+
+
+def verdad_perfiles(clientes: list[dict]) -> dict:
+    """{cliente_id: perfil} para los clientes sintéticos de la lista (vacío si no hay)."""
+    return {c["cliente_id"]: p for c in clientes if (p := perfil_sintetico(c.get("email", "")))}
 
 
 def _utc(dia: date, hora: float) -> datetime:
@@ -131,10 +152,10 @@ def crear_clientes(db, empresa_id: str, password_hash: str) -> list[dict]:
 
 
 def generar_ventas(db, empresa_id: str, sucursales: list, prendas: list, clientes: list, personal: dict,
-                   hasta: date) -> int:
-    """Genera ventas diarias desde ``hasta - DIAS_DE_HISTORIA`` hasta ``hasta`` (inclusive)."""
+                   hasta: date, dias: int = DIAS_DE_HISTORIA) -> int:
+    """Genera ventas diarias desde ``hasta - dias`` hasta ``hasta`` (inclusive)."""
     rng = random.Random(SEMILLA + 2)
-    desde = hasta - timedelta(days=DIAS_DE_HISTORIA)
+    desde = hasta - timedelta(days=dias)
     pesos_clientes = [c["peso"] for c in clientes]
     total = 0
     dia = desde

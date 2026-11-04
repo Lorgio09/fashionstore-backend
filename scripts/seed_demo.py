@@ -8,7 +8,7 @@ Crea:
 - Empresa 1 "FashionStore" (plan Profesional): la creada por la migración con los datos originales.
 - Empresa 2 "Moda Andina" (plan Básico): administrador, cajero, 1 sucursal, catálogo y stock.
 - Empresa 3 "Estilo Urbano" (plan Profesional): 3 sucursales, 14 prendas, 50 clientes y ~6 meses
-  de ventas sintéticas (scripts/datos_sinteticos.py) para los reportes con IA y el módulo de ML.
+  de ventas sintéticas (app/ml/datos_sinteticos.py) para los reportes con IA y el módulo de ML.
 
 Contraseña de los usuarios demo: variable SEED_PASSWORD (por defecto FashionStore2026!).
 """
@@ -32,7 +32,7 @@ from app.models.usuarios import (
     Usuario,
 )
 from app.services import suscripciones as svc
-from scripts import datos_sinteticos as sinteticos
+from app.ml import datos_sinteticos as sinteticos
 
 PASSWORD = os.getenv("SEED_PASSWORD", "FashionStore2026!")
 

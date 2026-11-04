@@ -28,5 +28,6 @@ stripe
 google-genai
 reportlab
 openpyxl
+scikit-learn
 cloudinary
 python-dotenv

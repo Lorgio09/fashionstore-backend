@@ -182,13 +182,15 @@ def a_pdf(reporte: dict, narrativa: str | None = None) -> bytes:
         Paragraph(escape(f"Generado por {reporte['generado_por']} el {_fecha_local(reporte['generado_en'])}"), e_nota),
         Spacer(1, 8),
     ]
-    filtros = Table([[f["campo"], f["valor"]] for f in reporte["filtros"]], hAlign="LEFT",
-                    colWidths=[3.2 * cm, doc.width - 3.2 * cm])
-    filtros.setStyle(TableStyle([
-        ("FONT", (0, 0), (0, -1), "Helvetica-Bold", 8), ("FONT", (1, 0), (1, -1), "Helvetica", 8),
-        ("TEXTCOLOR", (0, 0), (-1, -1), tinta), ("BOTTOMPADDING", (0, 0), (-1, -1), 2), ("TOPPADDING", (0, 0), (-1, -1), 2),
-    ]))
-    elementos.append(filtros)
+    if reporte["filtros"]:
+        filtros = Table([[f["campo"], f["valor"]] for f in reporte["filtros"]], hAlign="LEFT",
+                        colWidths=[3.2 * cm, doc.width - 3.2 * cm])
+        filtros.setStyle(TableStyle([
+            ("FONT", (0, 0), (0, -1), "Helvetica-Bold", 8), ("FONT", (1, 0), (1, -1), "Helvetica", 8),
+            ("TEXTCOLOR", (0, 0), (-1, -1), tinta), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        elementos.append(filtros)
     for s in reporte.get("supuestos") or []:
         elementos.append(Paragraph(escape(f"Nota: {s}"), e_nota))
     if narrativa:  # resumen ejecutivo arriba, antes del detalle

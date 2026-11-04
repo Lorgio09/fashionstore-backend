@@ -21,7 +21,7 @@ def ejecutar_intencion(ctx: Contexto, intencion: Intencion, avisos: list | None 
     """Valida y ejecuta. Lanza ReporteInvalido si la intención no es aceptable."""
     validada = validar(ctx, intencion)
     reporte = ejecutar(ctx, validada)
-    reporte["supuestos"] = [*(avisos or []), *validada.supuestos]
+    reporte["supuestos"] = [*(avisos or []), *reporte["supuestos"]]
     return reporte, validada.intencion
 
 
