@@ -10,6 +10,7 @@ import tempfile
 _DIR = tempfile.mkdtemp(prefix="fashionstore-tests-")
 os.environ["DATABASE_URL"] = f"sqlite:///{os.path.join(_DIR, 'test.db')}"
 os.environ["EMPRESA_PUBLICA_POR_DEFECTO"] = "empresa-a"
+os.environ["GEMINI_API_KEY"] = ""  # las pruebas nunca llaman al proveedor de IA (se simula)
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

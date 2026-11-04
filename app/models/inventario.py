@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Date, Text, Boolean, UniqueConstraint, text
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Date, Text, Boolean, UniqueConstraint, Index, text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.db.database import Base
@@ -99,6 +99,8 @@ class Coleccion(TenantMixin, Base):
 class Orden(TenantMixin, Base):
     """Venta (web, presencial u offline). Cabecera del comprobante."""
     __tablename__ = "ordenes"
+    # RNF09: los reportes filtran siempre por empresa y rango de fechas
+    __table_args__ = (Index("ix_ordenes_empresa_fecha", "empresa_id", "fecha_orden"),)
 
     id = Column(Integer, primary_key=True, index=True)
     nombre_cliente = Column(String(100))

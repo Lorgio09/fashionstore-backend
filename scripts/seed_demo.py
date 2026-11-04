@@ -7,11 +7,14 @@ Crea:
 - Roles base y el Administrador de plataforma.
 - Empresa 1 "FashionStore" (plan Profesional): la creada por la migración con los datos originales.
 - Empresa 2 "Moda Andina" (plan Básico): administrador, cajero, 1 sucursal, catálogo y stock.
+- Empresa 3 "Estilo Urbano" (plan Profesional): 3 sucursales, 14 prendas, 50 clientes y ~6 meses
+  de ventas sintéticas (scripts/datos_sinteticos.py) para los reportes con IA y el módulo de ML.
 
 Contraseña de los usuarios demo: variable SEED_PASSWORD (por defecto FashionStore2026!).
 """
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 
 from app import models  # noqa: F401
 from app.core.security import get_password_hash
@@ -29,6 +32,7 @@ from app.models.usuarios import (
     Usuario,
 )
 from app.services import suscripciones as svc
+from scripts import datos_sinteticos as sinteticos
 
 PASSWORD = os.getenv("SEED_PASSWORD", "FashionStore2026!")
 
@@ -147,6 +151,22 @@ def main():
                     db.add(Inventario(variante_id=v.id, sucursal_id=suc.id, stock_disponible=stock,
                                       stock_reservado=0, empresa_id=ma.id))
             print("  + catálogo Moda Andina")
+
+        # Empresa 3: Estilo Urbano, plan Profesional, con historial de ventas sintéticas
+        eu = _empresa(db, "estilo-urbano", "Estilo Urbano S.R.L.", "3000000003", "PROFESIONAL")
+        if not db.query(Sucursal).filter(Sucursal.empresa_id == eu.id).first():
+            sucursales, prendas = sinteticos.crear_catalogo(db, eu.id)
+            equipetrol, centro, norte = sucursales
+            admin = _usuario(db, "admin@estilourbano.com", "Admin Estilo Urbano", ROL_ADMIN_EMPRESA, eu.id)
+            encargado = _usuario(db, "encargado@estilourbano.com", "Encargada Equipetrol", ROL_ENCARGADO, eu.id,
+                                 equipetrol.id)
+            cajero = _usuario(db, "cajero@estilourbano.com", "Cajero Centro", ROL_CAJERO, eu.id, centro.id)
+            _usuario(db, "cliente@estilourbano.com", "Cliente Estilo Urbano", ROL_CLIENTE, eu.id)
+            clientes = sinteticos.crear_clientes(db, eu.id, get_password_hash(PASSWORD))
+            ayer = (datetime.now(timezone.utc) + timedelta(hours=sinteticos.OFFSET_HORAS)).date() - timedelta(days=1)
+            personal = {equipetrol.id: encargado.id, centro.id: cajero.id, norte.id: admin.id}
+            n = sinteticos.generar_ventas(db, eu.id, sucursales, prendas, clientes, personal, hasta=ayer)
+            print(f"  + Estilo Urbano: {len(prendas)} prendas, {len(clientes)} clientes, {n} ventas hasta {ayer}")
 
         db.commit()
         print(f"\nListo. Contraseña de los usuarios demo: {PASSWORD}")
