@@ -1,6 +1,7 @@
 # Contrato API — FashionStore SaaS (parcial 2)
 
-Versión 4 · 2026-11-04 · Fuente única para la PWA (Angular) y la app móvil (Flutter).
+Versión 5 · 2026-11-04 · Fuente única para la PWA (Angular) y la app móvil (Flutter).
+Cambios v5: devoluciones y cambios, notas de crédito y caja (§9); nota de crédito como pago en `/catalogo/checkout/presencial`; reporte IA `devoluciones_por_motivo`.
 Cambios v4: módulo de analítica con Machine Learning y dashboard (§8); 3 reportes inteligentes nuevos en §7.1.
 Cambios v3: reportes generativos con IA (§7) y empresa demo "Estilo Urbano" con 6 meses de ventas (§1).
 Cambios v2: sincronización offline (§6) implementada y probada; nuevo estado `ERROR`, `fecha_visita` en hora local y formato de conflictos y registro.
@@ -318,6 +319,7 @@ Cómo se resuelve:
 - `productos_mas_vendidos`: ranking. **Barras** horizontales.
 - `ingresos_por_categoria`: **torta**.
 - `stock_bajo`: stock actual; no usa fechas. **Barras**.
+- `devoluciones_por_motivo`: solicitudes de devolución o cambio por motivo, en un período. **Barras**.
 - `prediccion_demanda` (ML): fechas **futuras**, por defecto de mañana a 7 días y como máximo 28. Muestra unidades estimadas, rango, stock, cobertura y alerta. **Barras**.
 - `segmentos_clientes` (ML): toda la empresa; no usa fechas ni sucursal. **Torta**.
 - `evaluacion_modelos` (ML): tabla de métricas, sin gráfico.
@@ -452,3 +454,103 @@ Nombres posibles de segmento: Premium, Frecuentes, Ocasionales, En riesgo, Inact
    - variables descartadas;
    - botón **"Reentrenar"**, solo para el Administrador, con indicador de carga.
 6. Colores: `paleta` de `GET /ia/reportes/tipos`, en orden y sin rotarlos. Para alertas, usar ícono + texto (no solo color).
+
+---
+
+## 9. Devoluciones y cambios (CU-01 a CU-11) y caja (CU-20) ✅ (web)
+
+Están disponibles en los dos planes. Roles:
+- **Cajero:** registra solicitudes y resuelve (cambio, reembolso, sin stock).
+- **Encargado y Administrador:** además inspeccionan y autorizan.
+- **Cliente:** solicita desde "Mis compras" y ve sus solicitudes y sus notas de crédito.
+- **Administrador:** configura la política.
+
+El Cajero y el Encargado solo ven las solicitudes de su sucursal. Una solicitud o venta de otra empresa responde **404**.
+
+### 9.1 Endpoints `/devoluciones`
+| Método | Ruta | Quién | Uso |
+|---|---|---|---|
+| GET | `/politica` | todos | Política vigente (CU-09) |
+| PUT | `/politica` | Administrador | `{plazo_cambio_dias, plazo_garantia_dias, categorias_no_retornables: [ids], max_cambios_por_prenda, max_devoluciones_mes_cliente, fuera_de_plazo: "RECHAZAR"\|"RECARGO", recargo_pct, vigencia_nota_credito_dias, umbral_diferencia_caja}` |
+| GET | `/ventas?orden_id=` o `?cliente=texto` | personal | Buscar la venta por número de comprobante o por datos del cliente. Ver 9.2 |
+| GET | `/mis-compras` | Cliente | Sus compras con las prendas elegibles |
+| POST | `/solicitudes` | personal, Cliente | `{orden_id, items: [{detalle_orden_id, cantidad}], motivo, resolucion, sucursal_id?, observacion?}` → **201**. Ver 9.3 |
+| GET | `/solicitudes?estado=&sucursal_id=&motivo=&desde=&hasta=` | todos | Historial más `totales` (CU-11) |
+| GET | `/solicitudes/{codigo}` | todos | Detalle, con `acciones` posibles para el usuario |
+| POST | `/solicitudes/{codigo}/autorizar` | Encargado, Administrador | Si `requiere_autorizacion` (el cliente superó el máximo mensual) |
+| POST | `/solicitudes/{codigo}/inspeccionar` | Encargado, Administrador | `{resultado: APTA\|APTA_CON_DESCUENTO\|NO_APTA\|INCOMPLETA\|RECHAZAR, observacion}`. Para RECHAZAR, la observación es obligatoria (CU-03) |
+| POST | `/solicitudes/{codigo}/cambio-variante` | personal | `{items: [{detalle_id, variante_id}], forma_cobro?}` → otra talla o color del mismo modelo (CU-04) |
+| POST | `/solicitudes/{codigo}/cambio-producto` | personal | `{items: [{variante_id, cantidad}], forma_cobro?}` (CU-05). Si el producto nuevo cuesta más, `forma_cobro` es obligatoria; si cuesta menos, se emite una nota de crédito por la diferencia |
+| POST | `/solicitudes/{codigo}/reembolso` | personal | `{forma: EFECTIVO\|MEDIO_ORIGINAL\|NOTA_CREDITO}` (CU-06). Si la venta fue con QR, tarjeta o Stripe y se elige MEDIO_ORIGINAL, queda `reembolso_pendiente_procesador: true` |
+| POST | `/solicitudes/{codigo}/sin-stock` | personal | `{decision: NOTA_CREDITO\|ESPERAR_STOCK}` (CU-08) |
+| GET | `/disponibilidad/{variante_id}` | personal | Stock del mismo modelo en todas las sucursales (CU-08) |
+| GET | `/notas-credito` · `/notas-credito/{codigo}` | todos (el Cliente, solo las suyas) | Saldo, vencimiento, estado (VIGENTE\|USADA\|VENCIDA) y movimientos (CU-07) |
+
+**Motivos:** `TALLA`, `AJUSTE_MEDIDA`, `COLOR`, `DEFECTO`, `PRODUCTO_EQUIVOCADO`, `YA_NO_LO_DESEA`.
+**Resolución pedida:** `CAMBIO_VARIANTE`, `CAMBIO_PRODUCTO`, `REEMBOLSO`. En la resolución final se puede elegir otra.
+
+**Estados:** `EN_INSPECCION` → `INSPECCIONADA` → `CAMBIO_REALIZADO`, `REEMBOLSADA`, `CERRADA_CON_NOTA` o `RECHAZADA`.
+- Además existe `PENDIENTE_STOCK`. Desde ahí se puede hacer el cambio cuando llegue el stock, o emitir una nota.
+- El campo `acciones` de cada solicitud dice qué botones mostrar: `AUTORIZAR`, `INSPECCIONAR`, `CAMBIO_VARIANTE`, `CAMBIO_PRODUCTO`, `REEMBOLSO` y `SIN_STOCK`.
+
+**Reglas del servidor** (los errores llegan como 409 con `detail` legible):
+- **Venta:** tiene que estar pagada.
+- **Plazo:** desde la fecha de la venta; para `DEFECTO` se usa el plazo de garantía. Si está fuera de plazo y la política es RECHAZAR, el mensaje incluye la fecha límite. Si la política es RECARGO, se descuenta `recargo` del monto a favor.
+- **Cantidad:** no puede superar lo vendido menos lo ya devuelto.
+- **Categorías no retornables:** solo se aceptan por `DEFECTO`.
+- **Cambios:** hay un máximo de cambios por prenda.
+- **Stock:** si no alcanza para entregar la prenda de cambio, responde 409 "Sin stock…". En ese caso conviene ofrecer `disponibilidad` y `sin-stock`.
+
+**Inventario (CU-10):**
+- La prenda devuelta suma stock vendible si es `APTA` o `APTA_CON_DESCUENTO`; si no, va a `stock_no_disponible`.
+- La prenda entregada se descuenta.
+- Cada movimiento queda registrado en `movimientos_inventario`.
+
+### 9.2 Venta para devolver (`GET /ventas`, `GET /mis-compras`)
+```json
+{ "orden_id": 3498, "fecha": "2026-11-04T15:20:00Z", "canal": "PRESENCIAL", "metodo_pago": "EFECTIVO", "sucursal": "…",
+  "nombre_cliente": "…", "total": 79.0, "limite_cambio": "2026-12-04", "limite_garantia": "2027-02-02",
+  "items": [ { "detalle_orden_id": 7001, "prenda": "Polera Básica Algodón", "talla": "M", "color": "Negro", "cantidad": 1,
+               "precio_unitario": 79.0, "devuelto": 0, "elegible": 1, "cambios_realizados": 0, "retornable": true } ] }
+```
+
+### 9.3 Solicitud (respuesta de todas las operaciones)
+```json
+{ "codigo": "DEV-000001", "estado": "INSPECCIONADA", "orden_id": 3498, "canal": "TIENDA", "cliente": null,
+  "sucursal": {"id": 4, "nombre": "…"}, "motivo": "TALLA", "motivo_texto": "No le quedó la talla",
+  "resolucion_pedida": "CAMBIO_VARIANTE", "creado_en": "…", "requiere_autorizacion": false, "autorizada": false,
+  "fuera_de_plazo": false, "recargo": 0, "inspeccion": "APTA", "observacion": null,
+  "valor_devuelto": 79.0, "monto_a_favor": 79.0, "resolucion": null, "monto_reembolsado": 0, "forma_reembolso": null,
+  "reembolso_pendiente_procesador": false, "monto_cobrado": 0, "forma_cobro": null, "entregas": [],
+  "nota_credito": null,   // {codigo, monto, saldo, vence_en} si se emitió
+  "items": [ { "id": 1, "detalle_orden_id": 7001, "variante_id": 10, "prenda": "…", "talla": "M", "color": "Negro",
+               "cantidad": 1, "precio_unitario": 79.0, "entregado": null } ],
+  "acciones": ["CAMBIO_VARIANTE", "CAMBIO_PRODUCTO", "REEMBOLSO", "SIN_STOCK"] }
+```
+
+### 9.4 Nota de crédito como forma de pago
+`POST /catalogo/checkout/presencial` acepta `"nota_credito": "NC-000001"`.
+- Se aplica el saldo, hasta el total de la venta. Lo que falte se paga con `metodo_pago`, es decir, el pago puede ser mixto.
+- La respuesta agrega `pagado_con_nota_credito` y `a_pagar`.
+- Si la nota está vencida, usada o es de otro cliente, responde 409.
+
+### 9.5 Caja `/caja` (CU-20)
+| Método | Ruta | Uso |
+|---|---|---|
+| POST | `/abrir` | `{fondo_inicial, sucursal_id?}`. `sucursal_id` solo lo envía el Administrador. Responde 409 si ya hay una caja abierta en la sucursal |
+| GET | `/actual?sucursal_id=` | Caja abierta con `arqueo` en vivo. Responde 404 si no hay ninguna |
+| POST | `/cerrar?sucursal_id=` | `{efectivo_contado, observacion?, pendientes_locales?: {cantidad, monto_efectivo}}`. Ver las reglas abajo |
+| POST | `/{id}/autorizar` | Encargado o Administrador |
+| GET | `/turnos?sucursal_id=` | Historial de turnos |
+
+**Arqueo:**
+- `fondo_inicial` y `efectivo_esperado`;
+- `ventas_efectivo`: presenciales y offline ya sincronizadas, menos lo pagado con nota de crédito;
+- `cobros_cambios_efectivo` y `reembolsos_efectivo`;
+- `ventas.por_metodo`, con las ventas por QR o tarjeta solo como información;
+- `ventas.offline_sincronizadas`.
+
+**Reglas del cierre:**
+- Si hay diferencia, la observación es obligatoria; sin ella responde 422.
+- Si la diferencia supera `umbral_diferencia_caja` de la política (50 por defecto) y cierra un Cajero, la caja queda `PENDIENTE_AUTORIZACION`.
+- Para cerrar en el dispositivo: enviar en `pendientes_locales` las ventas que el dispositivo todavía tiene en LOCAL. Se concilian al sincronizar, porque la venta offline guarda su hora real.

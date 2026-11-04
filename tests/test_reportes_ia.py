@@ -303,7 +303,7 @@ def test_exportar_cada_reporte_a_pdf_y_excel(client, ventas, token, intencion):
 
 def test_catalogo_de_tipos_para_la_web(client, ventas, token):
     r = client.get("/api/ia/reportes/tipos", headers=token("admin@a.com")).json()
-    assert len(r["tipos"]) == 8 and len(r["paleta"]) == 8 and r["ia_disponible"] is False
+    assert len(r["tipos"]) == 9 and len(r["paleta"]) == 8 and r["ia_disponible"] is False
 
 
 def test_endpoint_anterior_sigue_funcionando(client, ventas, token, hoy_fijo):

@@ -9,7 +9,7 @@ se hace en Python, sobre como máximo un registro por día (RNF09).
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import Interval, func, literal_column
+from sqlalchemy import Interval, case, func, literal_column
 
 from app.core.contexto import Contexto
 from app.models.inventario import Categoria, DetalleOrden, Inventario, Orden, Prenda, Sucursal, VariantePrenda
@@ -271,6 +271,39 @@ def stock_bajo(ctx: Contexto, v: Validada) -> dict:
     }
 
 
+def devoluciones_por_motivo(ctx: Contexto, v: Validada) -> dict:
+    from app.models.posventa import RECHAZADA, DetalleSolicitud, SolicitudDevolucion
+    from app.services.devoluciones import MOTIVOS
+    it = v.intencion
+    q = (ctx.db.query(SolicitudDevolucion.motivo, func.count(func.distinct(SolicitudDevolucion.id)),
+                      func.sum(DetalleSolicitud.cantidad),
+                      func.sum(DetalleSolicitud.cantidad * DetalleSolicitud.precio_unitario),
+                      func.count(func.distinct(case((SolicitudDevolucion.estado == RECHAZADA, SolicitudDevolucion.id)))))
+         .join(DetalleSolicitud, DetalleSolicitud.solicitud_id == SolicitudDevolucion.id)
+         .filter(SolicitudDevolucion.empresa_id == ctx.empresa_id,
+                 SolicitudDevolucion.creado_en >= inicio_utc(it.fecha_desde),
+                 SolicitudDevolucion.creado_en < inicio_utc(it.fecha_hasta + timedelta(days=1))))
+    if it.sucursal_ids:
+        q = q.filter(SolicitudDevolucion.sucursal_id.in_(it.sucursal_ids))
+    filas = [{"motivo": MOTIVOS.get(m, m), "solicitudes": n, "unidades": int(u or 0), "monto": _dinero(val),
+              "rechazadas": r} for m, n, u, val, r in q.group_by(SolicitudDevolucion.motivo).all()]
+    filas.sort(key=lambda f: f["solicitudes"], reverse=True)
+    total = sum(f["solicitudes"] for f in filas)
+    for f in filas:
+        f["participacion"] = round(100 * f["solicitudes"] / total, 1) if total else 0.0
+    return {
+        "columnas": [_col("motivo", "Motivo"), _col("solicitudes", "Solicitudes", "entero"),
+                     _col("unidades", "Unidades", "entero"), _col("monto", "Valor devuelto (Bs)", "moneda"),
+                     _col("rechazadas", "Rechazadas", "entero"), _col("participacion", "Participación (%)", "porcentaje")],
+        "filas": filas,
+        "totales": {"motivo": "Total", "solicitudes": total, "unidades": sum(f["unidades"] for f in filas),
+                    "monto": _dinero(sum(f["monto"] for f in filas)), "rechazadas": sum(f["rechazadas"] for f in filas),
+                    "participacion": 100.0 if total else 0.0},
+        "grafico": {"eje_x": "motivo", "series": [{"clave": "solicitudes", "titulo": "Solicitudes"}]},
+        "vacio": not filas,
+    }
+
+
 def _ml(nombre: str):
     """Los reportes del módulo de ML se importan al usarse (evita dependencias circulares y cargar scikit-learn)."""
     def ejecutor(ctx: Contexto, v: Validada) -> dict:
@@ -285,6 +318,7 @@ EJECUTORES = {
     "productos_mas_vendidos": productos_mas_vendidos,
     "ingresos_por_categoria": ingresos_por_categoria,
     "stock_bajo": stock_bajo,
+    "devoluciones_por_motivo": devoluciones_por_motivo,
     "prediccion_demanda": _ml("prediccion_demanda"),
     "segmentos_clientes": _ml("segmentos_clientes"),
     "evaluacion_modelos": _ml("evaluacion_modelos"),

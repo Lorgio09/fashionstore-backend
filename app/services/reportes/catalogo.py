@@ -75,6 +75,12 @@ TIPOS = {
             False, ("categorias", "productos", "limite"), "barras",
             ("Mostrame los productos con menor existencia",),
         ),
+        TipoReporte(
+            "devoluciones_por_motivo", "Devoluciones por motivo",
+            "Solicitudes de devolución o cambio agrupadas por motivo: cantidad, unidades, valor y estado.",
+            True, (), "barras",
+            ("¿Por qué motivos nos devuelven más prendas?",),
+        ),
         # ----- Reportes inteligentes del módulo de Machine Learning (examen 8.5) -----
         TipoReporte(
             "prediccion_demanda", "Predicción de demanda",

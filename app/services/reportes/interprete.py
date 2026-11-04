@@ -96,6 +96,8 @@ def _tipo_por_reglas(t: str) -> Optional[str]:
     if re.search(r"evaluaci|metricas|precision|precisos|exactitud|que tan (buen|confiable)|error del modelo"
                  r"|calidad del modelo|rendimiento del modelo|modelos? de (ml|machine|ia)", t):
         return "evaluacion_modelos"
+    if re.search(r"devoluci|devuelt|devuelv|reembols", t):
+        return "devoluciones_por_motivo"
     if re.search(r"existencia|stock|inventario|agotad|reponer|quedan pocas", t):
         return "stock_bajo"
     if re.search(r"categori", t):
@@ -416,6 +418,11 @@ def narrativa_basica(reporte: dict) -> str:
         return (f"El modelo identificó {len(filas)} segmentos de clientes. El más numeroso es {mayor['segmento']} "
                 f"({mayor['clientes']} clientes) y el de mayor gasto promedio es {valioso['segmento']} "
                 f"({_bs(valioso['monto_total'])}). Acción sugerida: {valioso['accion_sugerida']}")
+    if tipo == "devoluciones_por_motivo":
+        f = filas[0]
+        return (f"{reporte['subtitulo']} se registraron {tot['solicitudes']} solicitudes de devolución o cambio "
+                f"({tot['unidades']} unidades, {_bs(tot['monto'])}). El motivo más frecuente es "
+                f"\"{f['motivo']}\" ({f['participacion']}%).")
     if tipo == "evaluacion_modelos":
         partes = [f"{f['metrica']}: {f['valor']}" for f in filas
                   if f["metrica"].startswith(("MAE", "Mejora", "Coeficiente", "ARI"))]

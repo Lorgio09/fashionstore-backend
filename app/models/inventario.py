@@ -71,6 +71,8 @@ class Inventario(TenantMixin, Base):
     id = Column(Integer, primary_key=True, index=True)
     stock_disponible = Column(Integer, default=0)
     stock_reservado = Column(Integer, default=0)
+    # Prendas devueltas no aptas para la venta (dañadas o incompletas): no suman al stock vendible (CU-10)
+    stock_no_disponible = Column(Integer, nullable=False, default=0, server_default=text("0"))
 
     variante_id = Column(Integer, ForeignKey("variantes_prenda.id"))
     sucursal_id = Column(Integer, ForeignKey("sucursales.id"))

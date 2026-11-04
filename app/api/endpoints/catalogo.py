@@ -64,9 +64,10 @@ class ItemVentaPresencial(BaseModel):
 
 class VentaPresencialCreate(BaseModel):
     sucursal_id: int
-    metodo_pago: str  # EFECTIVO, QR, TARJETA
+    metodo_pago: str  # EFECTIVO, QR, TARJETA (el resto, si la nota de crédito no alcanza)
     total: float
     items: List[ItemVentaPresencial]
+    nota_credito: Optional[str] = None   # código de una nota de crédito para usar como pago (CU-07)
 
 
 class ItemCarritoCheck(BaseModel):
@@ -584,13 +585,24 @@ def registrar_venta_presencial(
                 )
             inventario.stock_disponible -= item.cantidad
 
+        # Pago con nota de crédito (total o parcial): lo que falte se paga con el método indicado
+        aplicado = 0.0
+        if venta.nota_credito:
+            from app.services.devoluciones import aplicar_nota
+            aplicado = aplicar_nota(ctx, venta.nota_credito.strip(), nueva_orden, nueva_orden.total)
+            if aplicado >= nueva_orden.total - 0.009:
+                nueva_orden.metodo_pago = "NOTA_CREDITO"
+
         db.commit()
         db.refresh(nueva_orden)
 
         return {
             "mensaje": "Venta registrada e inventario actualizado",
             "orden_id": nueva_orden.id,
-            "metodo_pago": venta.metodo_pago
+            "metodo_pago": nueva_orden.metodo_pago,
+            "total": nueva_orden.total,
+            "pagado_con_nota_credito": aplicado,
+            "a_pagar": round(nueva_orden.total - aplicado, 2),
         }
 
     except HTTPException:
