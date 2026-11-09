@@ -34,6 +34,33 @@ class DatosReservaOffline(BaseModel):
     items: List[ItemReservaOffline] = Field(min_length=1)
 
 
+class DevueltoOffline(BaseModel):
+    """Prenda que el cliente devuelve. Si la venta fue offline y el dispositivo no conoce
+    ``detalle_orden_id``, basta con ``variante_id``."""
+    detalle_orden_id: Optional[int] = None
+    variante_id: Optional[int] = None
+    cantidad: int
+
+
+class EntregadoOffline(BaseModel):
+    variante_id: int
+    cantidad: int
+    precio_unitario: float
+
+
+class DatosCambioOffline(BaseModel):
+    """CU-19: cambio de prenda registrado sin conexión. El cajero inspecciona la prenda en el momento."""
+    orden_id: Optional[int] = None
+    venta_uuid: Optional[str] = Field(None, max_length=36)
+    motivo: Literal["TALLA", "AJUSTE_MEDIDA", "COLOR", "DEFECTO", "PRODUCTO_EQUIVOCADO", "YA_NO_LO_DESEA"]
+    inspeccion: Literal["APTA", "NO_APTA"] = "APTA"
+    devueltos: List[DevueltoOffline] = Field(min_length=1)
+    entregados: List[EntregadoOffline] = Field(min_length=1)
+    diferencia: float
+    forma_cobro: Optional[Literal["EFECTIVO"]] = None
+    observacion: Optional[str] = Field(None, max_length=255)
+
+
 # ---------- Lote ----------
 class OperacionOffline(BaseModel):
     uuid: UUID
@@ -80,6 +107,7 @@ class ItemAjuste(BaseModel):
 
 
 class ResolverConflicto(BaseModel):
+    # En un CAMBIO, AJUSTAR reintenta la operación tal cual (después de reponer stock); no lleva items.
     accion: Literal["RECHAZAR", "AJUSTAR"]
     motivo: Optional[str] = Field(None, max_length=200)
     items: Optional[List[ItemAjuste]] = None

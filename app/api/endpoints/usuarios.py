@@ -49,7 +49,7 @@ def _empresa_publica(empresa: Empresa | None):
 def registrar_cliente(cliente: ClienteCreate, ctx: ContextoPublico = Depends(get_contexto_publico)):
     db = ctx.db
     if _email_registrado(db, cliente.email):
-        raise HTTPException(status_code=400, detail="El correo ya está registrado")
+        raise HTTPException(status_code=409, detail="El correo ya está registrado")
 
     rol_cliente = db.query(Rol).filter(Rol.nombre == ROL_CLIENTE).first()
     if not rol_cliente:
@@ -77,7 +77,7 @@ def registrar_cliente(cliente: ClienteCreate, ctx: ContextoPublico = Depends(get
 def crear_empleado(usuario: UsuarioCreate, ctx: Contexto = Depends(requiere_roles(*ROLES_ADMIN))):
     db = ctx.db
     if _email_registrado(db, usuario.email):
-        raise HTTPException(status_code=400, detail="El correo ya está registrado")
+        raise HTTPException(status_code=409, detail="El correo ya está registrado")
 
     rol = db.get(Rol, usuario.rol_id)
     if rol is None or rol.nombre == ROL_ADMIN_PLATAFORMA:

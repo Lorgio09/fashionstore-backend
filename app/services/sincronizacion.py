@@ -21,9 +21,11 @@ from app.core.contexto import ROLES_GESTION, ROLES_PERSONAL, Contexto
 from app.core.security import registrar_bitacora
 from app.models.inventario import Categoria, DetalleOrden, Inventario, Orden, Prenda, Sucursal, VariantePrenda
 from app.models.reservas import DetalleReserva, Reserva
-from app.models.sync import CONFIRMADA, CONFLICTO, RECHAZADA, TIPO_RESERVA, TIPO_VENTA, OperacionSync
+from app.models.sync import CONFIRMADA, CONFLICTO, RECHAZADA, TIPO_CAMBIO, TIPO_RESERVA, TIPO_VENTA, OperacionSync
 from app.models.usuarios import ROL_ADMIN_EMPRESA, ROL_CLIENTE, Rol, Usuario
-from app.schemas.sync import DatosReservaOffline, DatosVentaOffline, OperacionOffline, ResolverConflicto
+from app.schemas.sync import (
+    DatosCambioOffline, DatosReservaOffline, DatosVentaOffline, OperacionOffline, ResolverConflicto,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +120,13 @@ def catalogo_offline(ctx: Contexto, sucursal_id: Optional[int] = None) -> dict:
             .order_by(Usuario.nombre_completo).all()
         )
 
+    # CU-19: para cambios sin conexión, el personal recibe las ventas recientes y la política
+    posventa = {}
+    if ctx.rol != ROL_CLIENTE:
+        from app.services import cambio_offline
+        posventa = {"politica_devoluciones": cambio_offline.politica_offline(ctx),
+                    "ventas_recientes": cambio_offline.ventas_para_cambio(ctx, ids_sucursales)}
+
     return {
         "generado_en": _iso(_ahora()),
         "vigencia_horas": VIGENCIA_CATALOGO_HORAS,
@@ -145,6 +154,7 @@ def catalogo_offline(ctx: Contexto, sucursal_id: Optional[int] = None) -> dict:
             {"id": c.id, "nombre_completo": c.nombre_completo, "email": c.email, "telefono": c.telefono}
             for c in clientes
         ],
+        **posventa,
     }
 
 
@@ -263,9 +273,13 @@ def _aplicar_reserva(db: Session, registro: OperacionSync, datos: DatosReservaOf
     return reserva.id, "Reserva registrada"
 
 
-def _aplicar(db: Session, registro: OperacionSync, datos: dict, registrada_por_cliente: bool) -> tuple[int, str]:
+def _aplicar(ctx: Contexto, registro: OperacionSync, datos: dict, registrada_por_cliente: bool) -> tuple[int, str]:
     """Valida los datos del tipo de operación y la aplica. Lanza Rechazo o SinStock."""
+    db = ctx.db
     try:
+        if registro.tipo == TIPO_CAMBIO:
+            from app.services.cambio_offline import aplicar_cambio
+            return aplicar_cambio(ctx, registro, DatosCambioOffline.model_validate(datos))
         if registro.tipo == TIPO_VENTA:
             return _aplicar_venta(db, registro, DatosVentaOffline.model_validate(datos))
         return _aplicar_reserva(db, registro, DatosReservaOffline.model_validate(datos), registrada_por_cliente)
@@ -278,10 +292,12 @@ def _validar_cabecera(ctx: Contexto, op: OperacionOffline, tipo: str) -> Sucursa
         raise Rechazo("La operación pertenece a otra empresa")
     if op.usuario_id != ctx.usuario.id:
         raise Rechazo("La operación fue registrada por otro usuario")
-    if tipo not in (TIPO_VENTA, TIPO_RESERVA):
+    if tipo not in (TIPO_VENTA, TIPO_RESERVA, TIPO_CAMBIO):
         raise Rechazo(f"Tipo de operación desconocido: {op.tipo}")
     if tipo == TIPO_VENTA and ctx.rol not in ROLES_PERSONAL:
         raise Rechazo("Solo el personal de la empresa puede registrar ventas")
+    if tipo == TIPO_CAMBIO and ctx.rol not in ROLES_PERSONAL:
+        raise Rechazo("Solo el personal de la empresa puede registrar cambios")
     sucursal = ctx.db.get(Sucursal, op.sucursal_id)
     if sucursal is None:
         raise Rechazo("Sucursal no encontrada en la empresa")
@@ -302,7 +318,7 @@ def _registrar_nueva(ctx: Contexto, op: OperacionOffline, dispositivo_id: Option
     )
     try:
         registro.sucursal_id = _validar_cabecera(ctx, op, tipo).id
-        registro.servidor_id, registro.mensaje = _aplicar(ctx.db, registro, op.datos, ctx.rol == ROL_CLIENTE)
+        registro.servidor_id, registro.mensaje = _aplicar(ctx, registro, op.datos, ctx.rol == ROL_CLIENTE)
         registro.estado = CONFIRMADA
     except Rechazo as r:
         registro.estado, registro.mensaje, registro.detalle = RECHAZADA, r.mensaje[:255], r.detalle
@@ -354,7 +370,7 @@ def procesar_operacion(ctx: Contexto, op: OperacionOffline, dispositivo_id: Opti
                 "detalle": None}
 
     if registro.estado == CONFIRMADA:
-        tabla = "ordenes" if registro.tipo == TIPO_VENTA else "reservas"
+        tabla = {TIPO_VENTA: "ordenes", TIPO_CAMBIO: "solicitudes_devolucion"}.get(registro.tipo, "reservas")
         registrar_bitacora(db, ctx.usuario.id, f"{registro.tipo}_OFFLINE", tabla, registro.servidor_id,
                            f"Sincronizada desde el dispositivo {registro.dispositivo_id or '-'} ({uuid})")
     return resultado(registro)
@@ -384,7 +400,9 @@ def consultar_estado(ctx: Contexto, uuids: list[str]) -> list[dict]:
 
 # ---------------------------------------------------------------- conflictos
 def _items_con_stock(db: Session, registro: OperacionSync) -> list[dict]:
-    items = (registro.datos.get("datos") or {}).get("items") or []
+    datos = registro.datos.get("datos") or {}
+    # En un CAMBIO el conflicto es por las prendas a entregar
+    items = datos.get("entregados" if registro.tipo == TIPO_CAMBIO else "items") or []
     ids = {i.get("variante_id") for i in items}
     variantes = {
         v.id: v for v in db.query(VariantePrenda).options(selectinload(VariantePrenda.prenda))
@@ -421,7 +439,7 @@ def _vista_conflicto(db: Session, registro: OperacionSync) -> dict:
         "creado_en": _iso(registro.creado_en_dispositivo),
         "recibido_en": _iso(registro.recibido_en),
         "mensaje": registro.mensaje,
-        "datos": {k: v for k, v in datos.items() if k != "items"},
+        "datos": {k: v for k, v in datos.items() if k not in ("items", "entregados")},
         "items": _items_con_stock(db, registro),
     }
 
@@ -480,15 +498,17 @@ def resolver_conflicto(ctx: Contexto, uuid: str, cuerpo: ResolverConflicto) -> d
         registro.estado = RECHAZADA
         registro.mensaje = f"Rechazada por {responsable}: {cuerpo.motivo.strip()}"[:255]
     else:
-        if not cuerpo.items:
+        es_cambio = registro.tipo == TIPO_CAMBIO
+        if not es_cambio and not cuerpo.items:
             raise HTTPException(status_code=422, detail="Indique los ítems y cantidades del ajuste")
         sucursal = db.get(Sucursal, registro.sucursal_id)
         if sucursal is None or not sucursal.activa:
             raise HTTPException(status_code=409, detail="La sucursal está inactiva: solo se puede rechazar")
-        datos = _datos_ajustados(registro, cuerpo.items)
+        # Un cambio no se ajusta por cantidades: se reintenta tal cual (por ejemplo, después de reponer stock)
+        datos = dict(registro.datos.get("datos") or {}) if es_cambio else _datos_ajustados(registro, cuerpo.items)
         registrada_por_cliente = registro.usuario.rol.nombre == ROL_CLIENTE
         try:
-            servidor_id, mensaje = _aplicar(db, registro, datos, registrada_por_cliente)
+            servidor_id, mensaje = _aplicar(ctx, registro, datos, registrada_por_cliente)
         except SinStock as s:
             db.rollback()
             faltan = ", ".join(
@@ -499,8 +519,11 @@ def resolver_conflicto(ctx: Contexto, uuid: str, cuerpo: ResolverConflicto) -> d
             db.rollback()
             raise HTTPException(status_code=409, detail=f"{r.mensaje}: solo se puede rechazar")
         registro.estado, registro.servidor_id = CONFIRMADA, servidor_id
-        registro.mensaje = f"{mensaje} con ajuste de {responsable}"[:255]
-        registro.detalle = {"items_confirmados": datos["items"]}
+        if es_cambio:
+            registro.mensaje = f"{mensaje}, reintentado por {responsable}"[:255]
+        else:
+            registro.mensaje = f"{mensaje} con ajuste de {responsable}"[:255]
+            registro.detalle = {"items_confirmados": datos["items"]}
 
     registro.resolucion = cuerpo.accion
     registro.resuelto_por = ctx.usuario.id

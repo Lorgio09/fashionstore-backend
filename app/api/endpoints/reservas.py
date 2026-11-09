@@ -1,3 +1,5 @@
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.contexto import ROLES_PERSONAL, Contexto, get_contexto, requiere_roles
@@ -70,13 +72,13 @@ def crear_reserva(reserva: ReservaCreate, ctx: Contexto = Depends(get_contexto))
 
 
 # 2. LISTAR RESERVAS POR SUCURSAL (Para el Encargado)
-@router.get("/sucursal/{sucursal_id}")
+@router.get("/sucursal/{sucursal_id}", response_model=List[ReservaResponse])
 def obtener_reservas_sucursal(sucursal_id: int, ctx: Contexto = Depends(requiere_roles(*ROLES_PERSONAL))):
     return ctx.db.query(Reserva).filter(Reserva.sucursal_id == sucursal_id).order_by(Reserva.fecha_visita.asc()).all()
 
 
 # 3. LISTAR RESERVAS DEL CLIENTE (Para el historial en la Web/Móvil)
-@router.get("/cliente/{cliente_id}")
+@router.get("/cliente/{cliente_id}", response_model=List[ReservaResponse])
 def obtener_reservas_cliente(cliente_id: int, ctx: Contexto = Depends(get_contexto)):
     if ctx.rol == ROL_CLIENTE and cliente_id != ctx.usuario.id:
         raise HTTPException(status_code=403, detail="Solo puede consultar sus propias reservas")

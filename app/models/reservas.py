@@ -23,6 +23,10 @@ class Reserva(TenantMixin, Base):
     sucursal = relationship("Sucursal")
     detalles = relationship("DetalleReserva", back_populates="reserva", cascade="all, delete-orphan")
 
+    @property
+    def sucursal_nombre(self):
+        return self.sucursal.nombre if self.sucursal else None
+
 
 class DetalleReserva(Base):
     """Ítem de una reserva. Pertenece a la empresa a través de su reserva."""
@@ -35,3 +39,24 @@ class DetalleReserva(Base):
 
     reserva = relationship("Reserva", back_populates="detalles")
     variante = relationship("VariantePrenda")
+
+    # Datos de la prenda para mostrar la reserva sin consultar el catálogo
+    @property
+    def prenda_id(self):
+        return self.variante.prenda_id if self.variante else None
+
+    @property
+    def prenda_nombre(self):
+        return self.variante.prenda.nombre if self.variante and self.variante.prenda else None
+
+    @property
+    def talla(self):
+        return self.variante.talla if self.variante else None
+
+    @property
+    def color(self):
+        return self.variante.color if self.variante else None
+
+    @property
+    def precio(self):
+        return self.variante.prenda.precio_base if self.variante and self.variante.prenda else None

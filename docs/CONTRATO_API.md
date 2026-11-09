@@ -1,6 +1,9 @@
 # Contrato API — FashionStore SaaS (parcial 2)
 
-Versión 5 · 2026-11-04 · Fuente única para la PWA (Angular) y la app móvil (Flutter).
+Versión 5.3 · 2026-11-08 · Fuente única para la PWA (Angular) y la app móvil (Flutter).
+Cambios v5.3: **cambio de prenda sin conexión (CU-19)**: operación `CAMBIO` en `/sync/operaciones` (§6.5); `/sync/catalogo` trae `politica_devoluciones` y `ventas_recientes` para el personal (§6.1); conflictos de un cambio (§6.4).
+Cambios v5.2: reservas con nombre de prenda, talla, color, precio y sucursal (§3.1); `POST /usuarios/registro/cliente` responde **409** si el correo ya existe.
+Cambios v5.1: backend nuevo desplegado en Render (§1).
 Cambios v5: devoluciones y cambios, notas de crédito y caja (§9); nota de crédito como pago en `/catalogo/checkout/presencial`; reporte IA `devoluciones_por_motivo`.
 Cambios v4: módulo de analítica con Machine Learning y dashboard (§8); 3 reportes inteligentes nuevos en §7.1.
 Cambios v3: reportes generativos con IA (§7) y empresa demo "Estilo Urbano" con 6 meses de ventas (§1).
@@ -18,7 +21,7 @@ Leyenda: ✅ implementado y probado · 🛠 en construcción (se avisará cuando
 | Backend local | `http://127.0.0.1:8000/api` (Swagger: `http://127.0.0.1:8000/docs`) |
 | Desde emulador Android | `http://10.0.2.2:8000/api` |
 | Desde celular físico | `http://<IP-LAN-de-la-PC>:8000/api` (levantar uvicorn con `--host 0.0.0.0`) |
-| Producción (Render) | `https://fashionstore-api-kedu.onrender.com/api` — **todavía con la versión vieja**; no usar hasta que se migre |
+| Producción (Render) | `https://fashionstore-api-kedu.onrender.com/api` — **versión nueva desplegada el 2026-11-04** (misma base de datos demo que la local). El plan gratuito se duerme: la primera petición puede tardar ~1 min |
 
 Levantar el backend (carpeta `fashionstore-backend`): `venv\Scripts\python -m uvicorn main:app --reload`
 CORS permite `http://localhost:4200` y `http://127.0.0.1:4200`.
@@ -98,15 +101,43 @@ Usar `funciones` para mostrar/ocultar opciones (ej. menú de reportes IA). El ba
 | `POST /catalogo/`, `PUT/DELETE /catalogo/{id}`, `POST categorias/proveedores/colecciones/temporadas/variantes-stock` | Administrador o Encargado |
 | `POST /catalogo/sucursales` | Solo Administrador. **409** si supera el límite del plan |
 | `POST /catalogo/checkout/presencial`, `GET /catalogo/inventario/sucursal/{id}`, `/catalogo/ordenes/historial`, `/catalogo/dashboard/resumen` | Personal (Administrador, Encargado, Cajero). Cajero/Encargado solo venden en su sucursal |
-| `POST /reservas/` | **Requiere token.** `cliente_id` opcional: si es Cliente se usa su id; si es personal, obligatorio |
+| `POST /reservas/` | **Requiere token.** Cuerpo y respuesta en §3.1 |
 | `GET /reservas/sucursal/{id}`, `PUT /reservas/{id}/estado` | Personal |
-| `GET /reservas/cliente/{id}` | Token; un Cliente solo ve las suyas |
+| `GET /reservas/cliente/{id}` | Token; un Cliente solo ve las suyas. Mismo formato que la respuesta de §3.1 (lista) |
+| `POST /usuarios/registro/cliente`, `POST /usuarios/usuarios` | **409** "El correo ya está registrado" si el correo existe (en cualquier empresa) |
 | `GET /usuarios/`, `POST /usuarios/usuarios` | Solo Administrador. Ya no devuelve `password_hash` |
 | `GET /auditoria/` | Solo Administrador |
 | `POST /ia/generar-reporte` | Administrador/Encargado **y plan Profesional** (403 con plan Básico) |
 | Eliminados | `/usuarios/sembrar-datos`, `/catalogo/parche-db`, `/catalogo/migrar-tablas-ordenes`, `/parche-db` |
 
 Las órdenes ahora traen `canal` (`WEB`/`PRESENCIAL`/`OFFLINE`), `metodo_pago`, `sucursal_id`, `usuario_id`, `cliente_id`, `uuid_operacion`.
+
+### 3.1 Reservas ✅
+
+`POST /reservas/` — cuerpo:
+```json
+{
+  "sucursal_id": 1,
+  "fecha_visita": "2026-11-10T10:00:00",   // hora local de la tienda, sin zona
+  "cliente_id": 5,                          // solo si reserva el personal; si es Cliente se ignora y se usa su id
+  "detalles": [{"variante_id": 12, "cantidad": 1}]
+}
+```
+- El stock de la sucursal se descuenta al reservar y se devuelve si la reserva pasa a `Cancelada`.
+- Errores: 400 stock insuficiente · 404 sucursal/variante/cliente inexistente o de otra empresa · 409 sucursal inactiva · 422 cantidad ≤ 0 o falta `cliente_id` (personal).
+
+Respuesta (igual en `POST /reservas/`, `GET /reservas/cliente/{id}` y `GET /reservas/sucursal/{id}`, estas dos como lista):
+```json
+{
+  "id": 31, "estado": "Pendiente",          // Pendiente | Preparada | Completada | Cancelada
+  "fecha_creacion": "2026-11-08T14:02:11", "fecha_visita": "2026-11-10T10:00:00",
+  "sucursal_id": 1, "sucursal_nombre": "Equipetrol",
+  "cliente_id": 5, "usuario_id": null,      // usuario_id = empleado que la registró (null si la hizo el cliente)
+  "detalles": [{"id": 40, "variante_id": 12, "cantidad": 1, "prenda_id": 3,
+                "prenda_nombre": "Chaqueta Denim", "talla": "M", "color": "Azul", "precio": 349.0}]
+}
+```
+`precio` es el precio base actual de la prenda (la reserva no congela precio; se cobra al retirar).
 
 ---
 
@@ -188,7 +219,18 @@ Cualquier usuario de la empresa. Cajero/Encargado reciben solo su sucursal; Admi
       "categoria_id": 1, "variantes": [ { "id": 10, "talla": "M", "color": "Blanco", "codigo_sku": "MA-3-M-BLA" } ] }
   ],
   "inventario": [ { "variante_id": 10, "sucursal_id": 2, "stock_disponible": 15 } ],
-  "clientes": [ { "id": 9, "nombre_completo": "...", "email": "...", "telefono": null } ]   // solo para personal
+  "clientes": [ { "id": 9, "nombre_completo": "...", "email": "...", "telefono": null } ],  // solo para personal
+  // --- solo para personal (Cajero, Encargado, Administrador): para cambios sin conexión (§6.5) ---
+  "politica_devoluciones": { "plazo_cambio_dias": 30, "plazo_garantia_dias": 90, "categorias_no_retornables": [4],
+                             "max_cambios_por_prenda": 2, "fuera_de_plazo": "RECHAZAR", "recargo_pct": 0.0 },
+  "ventas_recientes": [   // ventas pagadas de esas sucursales dentro del plazo de cambio, la más nueva primero (máx. 300)
+    { "orden_id": 154, "uuid_operacion": "6f1c2a9e-...",   // uuid_operacion: si fue una venta offline (null si no)
+      "fecha": "2026-11-03T18:05:00Z", "canal": "OFFLINE", "sucursal_id": 2, "cliente_id": null,
+      "nombre_cliente": "Cliente ocasional", "total": 178.0,
+      "items": [ { "detalle_orden_id": 301, "prenda_id": 3, "prenda": "Polera Andina Algodón", "variante_id": 10,
+                   "talla": "M", "color": "Blanco", "cantidad": 2, "precio_unitario": 89.0,
+                   "devuelto": 0, "cambios_realizados": 0, "retornable": true } ] }
+  ]
 }
 ```
 Guardar todo con `generado_en`. Mostrar siempre "Datos al <fecha>"; marcar **desactualizado** si pasaron más de `vigencia_horas` o si se está offline.
@@ -292,7 +334,53 @@ Cómo se resuelve:
   - En las ventas se conserva el precio unitario original y el total se recalcula.
   - La operación queda `CONFIRMADA` y el responsable sigue siendo quien la registró.
   - Si el stock todavía no alcanza, responde **409** y no se cambia nada. Para reintentar después de reponer stock, se envían las mismas cantidades.
+- **Conflicto de un `CAMBIO`.** Los `items` del conflicto son las prendas **a entregar** (`entregados`) y `datos` trae el resto (`orden_id`, `motivo`, `devueltos`, `diferencia`…). No se ajustan cantidades:
+  - `RECHAZAR` igual que arriba (el Encargado resuelve con el cliente en tienda);
+  - `{"accion": "AJUSTAR"}` **sin `items`** reintenta el cambio tal cual (después de reponer stock). Si todavía no alcanza, **409**.
 - Si la operación ya no está en conflicto, responde **409**. Si es de otra empresa, responde **404**.
+
+### 6.5 Cambio de prenda sin conexión (CU-19) ✅ — tipo `CAMBIO`
+
+Solo personal (un Cliente recibe `RECHAZADA`). El cajero inspecciona la prenda en el momento, entrega la nueva y, si el cliente paga una diferencia, la cobra **en efectivo**. Va en el mismo lote de `POST /sync/operaciones`, con el mismo uuid, estados e idempotencia.
+```json
+{
+  "uuid": "c0ffee...", "tipo": "CAMBIO", "empresa_id": "uuid", "sucursal_id": 2, "usuario_id": 7,
+  "creado_en": "2026-11-05T11:20:00-04:00",
+  "datos": {
+    "orden_id": 154,             // venta original ya sincronizada…
+    "venta_uuid": null,          // …o el uuid de la VENTA offline si todavía no tiene orden_id (solo uno de los dos)
+    "motivo": "TALLA",           // TALLA | AJUSTE_MEDIDA | COLOR | DEFECTO | PRODUCTO_EQUIVOCADO | YA_NO_LO_DESEA
+    "inspeccion": "APTA",        // APTA (por defecto) | NO_APTA (solo con motivo DEFECTO)
+    "devueltos":  [ { "detalle_orden_id": 301, "cantidad": 1 } ],   // o { "variante_id": 10, "cantidad": 1 } si no se conoce la línea
+    "entregados": [ { "variante_id": 11, "cantidad": 1, "precio_unitario": 89.0 } ],
+    "diferencia": 0.0,           // valor_entregado - (valor_devuelto - recargo). > 0 paga el cliente; < 0 queda a su favor
+    "forma_cobro": null,         // "EFECTIVO" obligatorio si diferencia > 0
+    "observacion": null
+  }
+}
+```
+- `valor_devuelto` usa el **precio pagado en la venta original**; `valor_entregado`, el `precio_unitario` informado (el del catálogo del dispositivo).
+- Si la venta original también fue offline, envía la `VENTA` antes que el `CAMBIO` (o en el mismo lote: el servidor procesa por `creado_en`).
+
+**Resultado `CONFIRMADA`** — `servidor_id` = id de la solicitud y `detalle`:
+```json
+{ "codigo": "DEV-000045", "resolucion": "CAMBIO_VARIANTE",    // CAMBIO_PRODUCTO si se entrega otro modelo
+  "valor_devuelto": 89.0, "recargo": 0.0, "valor_entregado": 89.0, "diferencia_calculada": 0.0,
+  "monto_cobrado": 0.0,
+  "nota_credito": null,           // { "codigo": "NC-000012", "monto": 40.0, "vence_en": "..." } si la diferencia fue a favor
+  "advertencias": [] }            // p. ej. el cliente superó el máximo mensual de devoluciones (queda marcado para revisión)
+```
+Se crea la solicitud ya cerrada (`CAMBIO_REALIZADO`, `canal: "OFFLINE"`, visible en `/devoluciones/solicitudes`): la prenda devuelta vuelve al stock vendible (o a no disponible si es `NO_APTA`), la entregada sale del stock y todo queda en movimientos de inventario. La fecha del cambio es `creado_en`, así que el cobro en efectivo entra al **arqueo de la caja** del turno en que ocurrió.
+
+**`CONFLICTO`**: no hay stock central de alguna prenda a entregar (`detalle.items` como en 6.2). No se toca nada; se resuelve en la web (6.4).
+
+**`RECHAZADA`** (mismas reglas que el cambio en línea, contadas a la fecha `creado_en`):
+- falta `orden_id`/`venta_uuid` o vienen los dos; venta inexistente o de otra empresa ("Venta no encontrada"); la venta offline original quedó en conflicto o rechazada;
+- venta no pagada; fecha del cambio anterior a la venta; fuera de plazo (si la política es `RECARGO`, se acepta con recargo incluido en la diferencia);
+- prenda que no pertenece a la venta o más unidades que las elegibles (vendidas − ya devueltas); categoría no retornable sin motivo `DEFECTO`; `NO_APTA` sin motivo `DEFECTO`; máximo de cambios por prenda alcanzado;
+- `diferencia` distinta de la calculada (tolerancia 0.01; `detalle` trae `diferencia_calculada`); diferencia a pagar sin `forma_cobro: "EFECTIVO"`.
+
+**En el dispositivo:** validar con `politica_devoluciones` y `ventas_recientes` antes de registrar (plazo, elegibles = `cantidad − devuelto`, retornable, máximo de cambios), descontar del stock local la prenda entregada y sumar la devuelta si es apta, y sumar a `devuelto` de la línea para no permitir cambiar dos veces la misma unidad.
 
 ---
 

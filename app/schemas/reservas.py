@@ -12,6 +12,11 @@ class DetalleReservaCreate(DetalleReservaBase):
 
 class DetalleReservaResponse(DetalleReservaBase):
     id: int
+    prenda_id: Optional[int] = None
+    prenda_nombre: Optional[str] = None
+    talla: Optional[str] = None
+    color: Optional[str] = None
+    precio: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -31,6 +36,8 @@ class ReservaResponse(ReservaBase):
     fecha_creacion: datetime
     estado: str
     cliente_id: int
+    usuario_id: Optional[int] = None
+    sucursal_nombre: Optional[str] = None
     detalles: List[DetalleReservaResponse]
 
     class Config:

@@ -13,6 +13,7 @@ CONFLICTO = "CONFLICTO"
 
 TIPO_VENTA = "VENTA"
 TIPO_RESERVA = "RESERVA"
+TIPO_CAMBIO = "CAMBIO"   # CU-19: cambio de prenda sin conexión
 
 
 class OperacionSync(TenantMixin, Base):
@@ -25,7 +26,7 @@ class OperacionSync(TenantMixin, Base):
 
     id = Column(Integer, primary_key=True, index=True)
     uuid = Column(String(36), unique=True, nullable=False, index=True)
-    tipo = Column(String(20), nullable=False)                 # VENTA | RESERVA
+    tipo = Column(String(20), nullable=False)                 # VENTA | RESERVA | CAMBIO
     estado = Column(String(20), nullable=False, index=True)   # CONFIRMADA | RECHAZADA | CONFLICTO
 
     # Quién la registró en el dispositivo (el usuario del token) y dónde
