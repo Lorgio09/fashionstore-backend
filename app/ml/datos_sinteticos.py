@@ -135,6 +135,31 @@ def crear_catalogo(db, empresa_id: str) -> tuple[list, list]:
     return sucursales, prendas
 
 
+def cargar_catalogo(db, empresa_id: str) -> tuple[list, list]:
+    """Recupera de la base las sucursales y prendas creadas por ``crear_catalogo`` (mismo formato)."""
+    por_nombre = {s.nombre: s for s in db.query(Sucursal).filter(Sucursal.empresa_id == empresa_id)}
+    sucursales = [por_nombre[nombre] for nombre, _, _ in SUCURSALES]
+    prendas = []
+    for cat, nombre, precio, popularidad, _, _ in CATALOGO:
+        p = db.query(Prenda).filter(Prenda.empresa_id == empresa_id, Prenda.nombre == nombre).one()
+        variantes = (db.query(VariantePrenda).filter(VariantePrenda.prenda_id == p.id)
+                     .order_by(VariantePrenda.id).all())
+        prendas.append({"prenda": p, "categoria": cat, "precio": precio, "popularidad": popularidad,
+                        "variantes": variantes})
+    return sucursales, prendas
+
+
+def cargar_clientes(db, empresa_id: str) -> list[dict]:
+    """Recupera los clientes sintéticos (cliente01..50@estilourbano.demo) con su perfil."""
+    clientes = []
+    for u in (db.query(Usuario).filter(Usuario.empresa_id == empresa_id, Usuario.email.like("cliente%@estilourbano.demo"))
+              .order_by(Usuario.email)):
+        perfil = perfil_sintetico(u.email)
+        if perfil:
+            clientes.append({"usuario": u, "perfil": perfil, **PERFILES[perfil]})
+    return clientes
+
+
 def crear_clientes(db, empresa_id: str, password_hash: str) -> list[dict]:
     rng = random.Random(SEMILLA + 1)
     rol = db.query(Rol).filter(Rol.nombre == ROL_CLIENTE).one()
@@ -152,15 +177,20 @@ def crear_clientes(db, empresa_id: str, password_hash: str) -> list[dict]:
 
 
 def generar_ventas(db, empresa_id: str, sucursales: list, prendas: list, clientes: list, personal: dict,
-                   hasta: date, dias: int = DIAS_DE_HISTORIA) -> int:
-    """Genera ventas diarias desde ``hasta - dias`` hasta ``hasta`` (inclusive)."""
-    rng = random.Random(SEMILLA + 2)
-    desde = hasta - timedelta(days=dias)
+                   hasta: date, dias: int = DIAS_DE_HISTORIA, desde: Optional[date] = None,
+                   origen: Optional[date] = None, semilla: int = SEMILLA + 2) -> int:
+    """Genera ventas diarias desde ``hasta - dias`` (o ``desde``) hasta ``hasta`` (inclusive).
+
+    ``origen`` es el primer día del historial: la tendencia se mide desde ahí, para que al extender
+    los datos (scripts/extender_demo.py) la serie continúe sin saltos."""
+    rng = random.Random(semilla)
+    desde = desde or hasta - timedelta(days=dias)
+    origen = origen or desde
     pesos_clientes = [c["peso"] for c in clientes]
     total = 0
     dia = desde
     while dia <= hasta:
-        semanas = (dia - desde).days / 7
+        semanas = (dia - origen).days / 7
         tendencia = 1 + 0.01 * semanas
         fin_de_mes = 1.2 if dia.day >= 25 or dia.day <= 2 else 1.0
         canales = [(s, base) for s, (_, _, base) in zip(sucursales, SUCURSALES)] + [(None, 1.5 + 0.03 * semanas)]
