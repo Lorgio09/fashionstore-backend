@@ -1,6 +1,7 @@
 # Contrato API — FashionStore SaaS (parcial 2)
 
-Versión 5.3 · 2026-11-08 · Fuente única para la PWA (Angular) y la app móvil (Flutter).
+Versión 5.4 · 2026-11-09 · Fuente única para la PWA (Angular) y la app móvil (Flutter).
+Cambios v5.4: **cara pública de la plataforma** (§2.1): directorio de tiendas y planes sin token, para que la web y la app muestren FashionStore como proveedor y cada tienda con su propio nombre.
 Cambios v5.3: **cambio de prenda sin conexión (CU-19)**: operación `CAMBIO` en `/sync/operaciones` (§6.5); `/sync/catalogo` trae `politica_devoluciones` y `ventas_recientes` para el personal (§6.1); conflictos de un cambio (§6.4).
 Cambios v5.2: reservas con nombre de prenda, talla, color, precio y sucursal (§3.1); `POST /usuarios/registro/cliente` responde **409** si el correo ya existe.
 Cambios v5.1: backend nuevo desplegado en Render (§1).
@@ -53,8 +54,35 @@ Para cargarla, ejecuta `venv\Scripts\python -m scripts.seed_demo`.
 
 - Cada **empresa** contratante es un tenant. Todo dato de negocio pertenece a una empresa.
 - **Usuario autenticado:** la empresa se toma del usuario en el servidor. El cliente NO envía `empresa_id` para elegir empresa.
-- **Visitante anónimo (tienda pública):** enviar el header `X-Empresa: <slug>` (ej. `moda-andina`). Sin header se usa `fashionstore`. Si hay token, el token manda y el header se ignora.
+- **Visitante anónimo (tienda pública):** enviar el header `X-Empresa: <slug>` (ej. `moda-andina`). Sin header se usa la tienda por defecto del servidor (`estilo-urbano` en Render). Si hay token, el token manda y el header se ignora.
 - Un recurso de otra empresa responde **404** (no se revela que existe).
+
+### 2.1 Cara pública de la plataforma ✅ (sin token)
+
+**Dos marcas:** *FashionStore* es la plataforma (el proveedor del servicio). Cada empresa es una **tienda con su propio nombre**. En la tienda y en el panel de la empresa se muestra el nombre de la empresa, no "FashionStore". FashionStore aparece en la portada, en el panel de plataforma y como "con tecnología de FashionStore" al pie.
+
+| Método | Ruta | Respuesta |
+|---|---|---|
+| GET | `/publico/tiendas` | Tiendas **activas** con al menos una sucursal activa (las suspendidas o sin sucursales no aparecen), por nombre |
+| GET | `/publico/tiendas/{slug}` | Una tienda con sus sucursales. **404** si no existe o está suspendida |
+| GET | `/publico/planes` | Planes vigentes para la página de precios, del más barato al más caro |
+
+```json
+// GET /publico/tiendas  → lista de:
+{ "slug": "estilo-urbano", "nombre": "Estilo Urbano S.R.L.", "sucursales": 3, "prendas": 14,
+  "categorias": ["Accesorios", "Calzados", "Camisas", "Chamarras", "Pantalones", "Poleras"],  // máx. 6
+  "portada_url": null }        // imagen de una prenda si hay; si es null, usar un fondo con la inicial
+
+// GET /publico/tiendas/estilo-urbano → lo mismo más:
+{ "correo": "...", "telefono": "...",
+  "lista_sucursales": [ { "id": 1, "nombre": "Equipetrol", "direccion": "..." } ] }
+
+// GET /publico/planes → lista de:
+{ "codigo": "PROFESIONAL", "nombre": "Profesional", "precio_mensual": 450.0, "max_sucursales": 10,
+  "max_usuarios": null,        // null = sin límite
+  "permite_offline": true, "permite_reportes_ia": true }
+```
+Después de elegir la tienda, el catálogo se pide como siempre con `X-Empresa: <slug>`. Con sesión iniciada, el nombre de la empresa del usuario viene en el login (`empresa.razon_social`) y en `/empresa/mi-empresa`.
 
 ### Login `POST /usuarios/login`
 ```json

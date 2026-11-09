@@ -5,7 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.endpoints import auditoria, caja, catalogo, devoluciones, empresa, ia, ml, plataforma, reservas, sync, usuarios
+from app.api.endpoints import (
+    auditoria, caja, catalogo, devoluciones, empresa, ia, ml, plataforma, publico, reservas, sync, usuarios,
+)
 from app.db.database import Base, engine
 from app.db.tenant import AccesoCruzado, TenantNoDefinido
 from app import models as _modelos  # noqa: F401  (registra todos los modelos)
@@ -61,6 +63,7 @@ app.include_router(sync.router, prefix="/api/sync", tags=["Sincronización offli
 app.include_router(ml.router, prefix="/api/ml", tags=["Analítica inteligente (ML)"])
 app.include_router(devoluciones.router, prefix="/api/devoluciones", tags=["Devoluciones y cambios"])
 app.include_router(caja.router, prefix="/api/caja", tags=["Caja"])
+app.include_router(publico.router, prefix="/api/publico", tags=["Público (plataforma)"])
 
 
 @app.get("/")
